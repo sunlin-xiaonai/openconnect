@@ -1,0 +1,20 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.agmente.android.app-mergeDebugResources-50:/values-hdpi-v4/values-hdpi-v4.xml",
+            "map": [
+                {
+                    "source": "/Users/bingsun/.gradle/caches/8.12/transforms/55a1ee8a1e87da347552f2a25af3e8ce/transformed/appcompat-1.1.0/res/values-hdpi-v4/values-hdpi-v4.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endLines": "6",
+                        "endColumns": "13",
+                        "endOffsets": "327"
+                    }
+                }
+            ]
+        }
+    ]
+}
