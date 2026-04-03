@@ -7,10 +7,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
+        android:name=".AgmenteApplication"
         android:allowBackup="true"
         android:enableOnBackInvokedCallback="true"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.AgmenteAndroid">

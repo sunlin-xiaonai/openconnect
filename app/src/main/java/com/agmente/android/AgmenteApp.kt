@@ -54,6 +54,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -66,13 +68,19 @@ import com.agmente.android.codex.RemoteSessionSummary
 import com.agmente.android.codex.ServerMode
 import com.agmente.android.codex.TranscriptEntry
 import com.agmente.android.codex.TranscriptRole
+import com.agmente.android.codex.displayName
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.util.Locale
 
-private val sessionTimeFormatter: DateTimeFormatter = DateTimeFormatter
-    .ofPattern("MM-dd HH:mm")
-    .withZone(ZoneId.systemDefault())
+private fun sessionTimeLabel(epochSeconds: Long): String =
+    DateTimeFormatter
+        .ofLocalizedDateTime(FormatStyle.SHORT)
+        .withLocale(Locale.getDefault())
+        .withZone(ZoneId.systemDefault())
+        .format(Instant.ofEpochSecond(epochSeconds))
 
 private const val TRANSCRIPT_PAGE_SIZE = 10
 private const val RECENT_LOG_COUNT = 10
@@ -104,10 +112,11 @@ private fun projectNameFromPath(path: String?): String? {
 private fun threadDisplayTitle(
     cwd: String?,
     fallbackTitle: String,
+    unnamedTitle: String,
 ): String =
     projectNameFromPath(cwd)
         ?: fallbackTitle.trim().takeIf { it.isNotBlank() }
-        ?: "未命名线程"
+        ?: unnamedTitle
 
 private fun threadPreviewLabel(
     rawTitle: String,
@@ -117,13 +126,24 @@ private fun threadPreviewLabel(
     return normalizedTitle.takeIf { it != projectNameFromPath(cwd) }
 }
 
+@Composable
 private fun topBarConnectionLabel(uiState: AcpUiState): String {
-    val prefix = if (uiState.serverMode == ServerMode.CodexAppServer) "Codex" else "ACP"
+    val prefix = stringResource(
+        if (uiState.serverMode == ServerMode.CodexAppServer) {
+            R.string.status_mode_codex
+        } else {
+            R.string.status_mode_acp
+        }
+    )
     return when {
-        uiState.isConnected && uiState.initializationStatus == "已初始化" -> "$prefix 在线"
-        uiState.isConnected -> "$prefix 已连"
-        uiState.autoReconnectEnabled && uiState.reconnectStatus.contains("重连") -> "$prefix 重连中"
-        else -> "$prefix 未连"
+        uiState.isConnected && uiState.isInitialized ->
+            stringResource(R.string.top_bar_status_online, prefix)
+        uiState.isConnected ->
+            stringResource(R.string.top_bar_status_connected, prefix)
+        uiState.isReconnectScheduled ->
+            stringResource(R.string.top_bar_status_reconnecting, prefix)
+        else ->
+            stringResource(R.string.top_bar_status_disconnected, prefix)
     }
 }
 
@@ -136,6 +156,7 @@ fun AgmenteApp(
     onRequestNotificationPermission: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var showManualConfig by rememberSaveable { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(HomeTab.Threads) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
@@ -222,7 +243,8 @@ fun AgmenteApp(
         CodexThreadDetailScreen(
             uiState = uiState,
             threadId = selectedThreadId.orEmpty(),
-            threadTitle = selectedThreadSummary?.title ?: selectedThreadTitle.ifBlank { "线程详情" },
+            threadTitle = selectedThreadSummary?.title
+                ?: selectedThreadTitle.ifBlank { context.getString(R.string.thread_detail_title) },
             onBack = {
                 selectedThreadId = null
                 pendingOpenCreatedThread = false
@@ -240,16 +262,17 @@ fun AgmenteApp(
     }
 
     if (settingsOpen) {
-        SettingsScreen(
-            uiState = uiState,
-            notificationsGranted = notificationsGranted,
-            showManualConfig = showManualConfig,
-            onBack = { settingsOpen = false },
-            onScanPairCode = onScanPairCode,
-            onRequestNotificationPermission = onRequestNotificationPermission,
-            onToggleManualConfig = { showManualConfig = !showManualConfig },
-            onServerModeChange = viewModel::updateServerMode,
-            onEndpointChange = viewModel::updateEndpoint,
+                SettingsScreen(
+                    uiState = uiState,
+                    notificationsGranted = notificationsGranted,
+                    showManualConfig = showManualConfig,
+                    onBack = { settingsOpen = false },
+                    onScanPairCode = onScanPairCode,
+                    onRequestNotificationPermission = onRequestNotificationPermission,
+                    onAppLanguageChange = viewModel::updateAppLanguage,
+                    onToggleManualConfig = { showManualConfig = !showManualConfig },
+                    onServerModeChange = viewModel::updateServerMode,
+                    onEndpointChange = viewModel::updateEndpoint,
             onBearerTokenChange = viewModel::updateBearerToken,
             onCfAccessClientIdChange = viewModel::updateCfAccessClientId,
             onCfAccessClientSecretChange = viewModel::updateCfAccessClientSecret,
@@ -323,7 +346,7 @@ private fun MainHomeScreen(
                     IconButton(onClick = onOpenSettings) {
                         Icon(
                             Icons.Outlined.Settings,
-                            contentDescription = "设置",
+                            contentDescription = stringResource(R.string.action_settings),
                         )
                     }
                 }
@@ -340,7 +363,7 @@ private fun MainHomeScreen(
                             contentDescription = null,
                         )
                     },
-                    label = { Text("线程") },
+                    label = { Text(stringResource(R.string.tab_threads)) },
                 )
                 NavigationBarItem(
                     selected = selectedTab == HomeTab.Logs,
@@ -351,7 +374,7 @@ private fun MainHomeScreen(
                             contentDescription = null,
                         )
                     },
-                    label = { Text("日志") },
+                    label = { Text(stringResource(R.string.tab_logs)) },
                 )
             }
         }
@@ -429,7 +452,7 @@ private fun ThreadsHomeTab(
                 )
             }
 
-            if (!uiState.isConnected || uiState.initializationStatus != "已初始化") {
+            if (!uiState.isConnected || !uiState.isInitialized) {
                 item {
                     ThreadSetupHintCard(
                         uiState = uiState,
@@ -447,8 +470,8 @@ private fun ThreadsHomeTab(
                 if (visibleThreads.isEmpty()) {
                     item {
                         ThreadSectionCard(
-                            title = "这个项目还没有线程",
-                            description = "你可以先新建一个线程，或者切回“全部线程”查看其他项目。",
+                            title = stringResource(R.string.thread_none_for_project_title),
+                            description = stringResource(R.string.thread_none_for_project_description),
                         )
                     }
                 } else {
@@ -456,7 +479,7 @@ private fun ThreadsHomeTab(
                         ThreadMiniCard(
                             summary = summary,
                             isSelected = summary.id == uiState.sessionId,
-                            isRunning = uiState.isStreaming && summary.id == uiState.sessionId,
+                            isRunning = summary.isRunning,
                             isRecentlyCompleted = summary.id == uiState.lastCompletedThreadId,
                             onOpen = { onOpenSession(summary) },
                         )
@@ -494,7 +517,7 @@ private fun ThreadsHomeTab(
 
 @Composable
 private fun TopBarConnectionBadge(uiState: AcpUiState) {
-    val isReady = uiState.isConnected && uiState.initializationStatus == "已初始化"
+    val isReady = uiState.isConnected && uiState.isInitialized
     val isConnected = uiState.isConnected
     val containerColor = when {
         isReady -> MaterialTheme.colorScheme.secondaryContainer
@@ -556,15 +579,21 @@ private fun CompactThreadToolbar(
             ) {
                 Text(
                     text = when (selectedScope) {
-                        ThreadScope.All -> "线程列表"
-                        ThreadScope.CurrentProject -> projectNameFromPath(currentProjectPath) ?: "当前项目"
+                        ThreadScope.All -> stringResource(R.string.thread_list_title)
+                        ThreadScope.CurrentProject -> projectNameFromPath(currentProjectPath)
+                            ?: stringResource(R.string.thread_list_current_project_title)
                     },
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
                     text = when (selectedScope) {
-                        ThreadScope.All -> "按最近活跃排序，共 $allCount 个线程"
-                        ThreadScope.CurrentProject -> "当前项目下 $currentProjectCount 个线程"
+                        ThreadScope.All ->
+                            stringResource(R.string.thread_list_all_description, allCount)
+                        ThreadScope.CurrentProject ->
+                            stringResource(
+                                R.string.thread_list_current_project_description,
+                                currentProjectCount,
+                            )
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -577,12 +606,12 @@ private fun CompactThreadToolbar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 SmallToolbarButton(
-                    label = "刷新",
+                    label = stringResource(R.string.action_refresh),
                     onClick = onRefreshSessions,
                     outlined = true,
                 )
                 SmallToolbarButton(
-                    label = "新建",
+                    label = stringResource(R.string.action_new),
                     onClick = onOpenNewThreadSetup,
                 )
             }
@@ -593,13 +622,13 @@ private fun CompactThreadToolbar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ScopePill(
-                label = "全部 $allCount",
+                label = stringResource(R.string.thread_scope_all, allCount),
                 selected = selectedScope == ThreadScope.All,
                 onClick = { onScopeSelected(ThreadScope.All) },
             )
             if (currentProjectPath != null) {
                 ScopePill(
-                    label = "当前项目 $currentProjectCount",
+                    label = stringResource(R.string.thread_scope_current_project, currentProjectCount),
                     selected = selectedScope == ThreadScope.CurrentProject,
                     onClick = { onScopeSelected(ThreadScope.CurrentProject) },
                 )
@@ -620,16 +649,16 @@ private fun LogsHomeTab(
     ) {
         item {
             ThreadSectionCard(
-                title = "事件日志",
-                description = "这里只放调试日志，首页不再展示，避免干扰日常使用。",
+                title = stringResource(R.string.logs_title),
+                description = stringResource(R.string.logs_description),
             )
         }
 
         if (uiState.logs.isEmpty()) {
             item {
                 ThreadSectionCard(
-                    title = "还没有日志",
-                    description = "连接、打开线程、发送消息之后，调试日志会出现在这里。",
+                    title = stringResource(R.string.logs_empty_title),
+                    description = stringResource(R.string.logs_empty_description),
                 )
             }
         } else {
@@ -669,15 +698,16 @@ private fun NewThreadScreen(
                 ?: recentProjects.firstOrNull().orEmpty()
         )
     }
+    val serviceDefaultDirectoryLabel = stringResource(R.string.label_service_default_directory)
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Text("新建线程")
+                        Text(stringResource(R.string.new_thread_title))
                         Text(
-                            text = "先选项目目录，再创建线程",
+                            text = stringResource(R.string.new_thread_subtitle),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -685,7 +715,10 @@ private fun NewThreadScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back),
+                        )
                     }
                 }
             )
@@ -700,8 +733,8 @@ private fun NewThreadScreen(
         ) {
             item {
                 ThreadSectionCard(
-                    title = "选择项目目录",
-                    description = "你可以直接选最近做过的项目，也可以手动输入一个新的代码路径。创建后，线程会在这个目录下执行。",
+                    title = stringResource(R.string.new_thread_choose_directory_title),
+                    description = stringResource(R.string.new_thread_choose_directory_description),
                 )
             }
 
@@ -713,7 +746,7 @@ private fun NewThreadScreen(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Text(
-                                text = "最近项目",
+                                text = stringResource(R.string.new_thread_recent_projects),
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             recentProjects.take(8).forEach { path ->
@@ -736,16 +769,16 @@ private fun NewThreadScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Text(
-                            text = "手动输入路径",
+                            text = stringResource(R.string.new_thread_manual_path_title),
                             style = MaterialTheme.typography.titleMedium,
                         )
                         OutlinedTextField(
                             value = selectedPath,
                             onValueChange = { selectedPath = it },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("项目目录") },
+                            label = { Text(stringResource(R.string.field_project_directory)) },
                             supportingText = {
-                                Text("例如 /Users/you/code/project-a。新路径也可以填，但需要电脑端可访问。")
+                                Text(stringResource(R.string.field_project_directory_hint))
                             },
                             singleLine = true,
                         )
@@ -764,11 +797,11 @@ private fun NewThreadScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Text(
-                            text = "即将使用的目录",
+                            text = stringResource(R.string.new_thread_upcoming_directory_title),
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
-                            text = selectedPath.ifBlank { "服务端默认目录" },
+                            text = selectedPath.ifBlank { serviceDefaultDirectoryLabel },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -780,13 +813,13 @@ private fun NewThreadScreen(
                                 onClick = { onCreateThread(null) },
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Text("默认目录")
+                                Text(stringResource(R.string.action_default_directory))
                             }
                             Button(
                                 onClick = { onCreateThread(selectedPath.trim().ifBlank { null }) },
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Text("创建线程")
+                                Text(stringResource(R.string.action_create_thread))
                             }
                         }
                     }
@@ -809,7 +842,7 @@ private fun ThreadScopeCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "线程范围",
+                text = stringResource(R.string.thread_scope_title),
                 style = MaterialTheme.typography.titleMedium,
             )
             Row(
@@ -817,13 +850,13 @@ private fun ThreadScopeCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 ToggleButton(
-                    label = "全部 $allCount",
+                    label = stringResource(R.string.thread_scope_all, allCount),
                     selected = selectedScope == ThreadScope.All,
                     onClick = { onScopeSelected(ThreadScope.All) },
                     modifier = Modifier.weight(1f),
                 )
                 ToggleButton(
-                    label = "当前项目 $currentProjectCount",
+                    label = stringResource(R.string.thread_scope_current_project, currentProjectCount),
                     selected = selectedScope == ThreadScope.CurrentProject,
                     onClick = { onScopeSelected(ThreadScope.CurrentProject) },
                     modifier = Modifier.weight(1f),
@@ -904,6 +937,7 @@ private fun SettingsScreen(
     onBack: () -> Unit,
     onScanPairCode: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
+    onAppLanguageChange: (AppLanguage) -> Unit,
     onToggleManualConfig: () -> Unit,
     onServerModeChange: (ServerMode) -> Unit,
     onEndpointChange: (String) -> Unit,
@@ -925,10 +959,13 @@ private fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("设置") },
+                title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back),
+                        )
                     }
                 }
             )
@@ -943,6 +980,13 @@ private fun SettingsScreen(
         ) {
             item {
                 HomeOverviewCard(uiState = uiState)
+            }
+
+            item {
+                LanguageSettingsCard(
+                    currentLanguage = uiState.appLanguage,
+                    onAppLanguageChange = onAppLanguageChange,
+                )
             }
 
             item {
@@ -1009,6 +1053,42 @@ private fun SettingsScreen(
 }
 
 @Composable
+private fun LanguageSettingsCard(
+    currentLanguage: AppLanguage,
+    onAppLanguageChange: (AppLanguage) -> Unit,
+) {
+    val context = LocalContext.current
+    Card {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.language_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = stringResource(R.string.language_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppLanguage.entries.forEach { language ->
+                    ScopePill(
+                        label = language.label(context),
+                        selected = currentLanguage == language,
+                        onClick = { onAppLanguageChange(language) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun NotificationSettingsCard(
     notificationsGranted: Boolean,
     onRequestNotificationPermission: () -> Unit,
@@ -1026,21 +1106,27 @@ private fun NotificationSettingsCard(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    text = "通知",
+                    text = stringResource(R.string.notifications_title),
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
                     text = if (notificationsGranted) {
-                        "已开启后台提醒和提示音。"
+                        stringResource(R.string.notifications_enabled_description)
                     } else {
-                        "通知未开启，后台完成时可能没有提醒。"
+                        stringResource(R.string.notifications_disabled_description)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             SmallToolbarButton(
-                label = if (notificationsGranted) "检查" else "开启",
+                label = stringResource(
+                    if (notificationsGranted) {
+                        R.string.action_check
+                    } else {
+                        R.string.action_enable
+                    }
+                ),
                 onClick = onRequestNotificationPermission,
                 outlined = notificationsGranted,
             )
@@ -1059,7 +1145,7 @@ private fun AutoReconnectSettingsCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = "自动重连",
+                text = stringResource(R.string.auto_reconnect_title),
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
@@ -1071,12 +1157,12 @@ private fun AutoReconnectSettingsCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 ScopePill(
-                    label = "开启",
+                    label = stringResource(R.string.auto_reconnect_enabled),
                     selected = uiState.autoReconnectEnabled,
                     onClick = { onAutoReconnectEnabledChange(true) },
                 )
                 ScopePill(
-                    label = "关闭",
+                    label = stringResource(R.string.auto_reconnect_disabled),
                     selected = !uiState.autoReconnectEnabled,
                     onClick = { onAutoReconnectEnabledChange(false) },
                 )
@@ -1101,8 +1187,24 @@ private fun HomeOverviewCard(uiState: AcpUiState) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 StatusChip(
-                    icon = { Text(if (uiState.serverMode == ServerMode.CodexAppServer) "Codex" else "ACP") },
-                    text = if (uiState.serverMode == ServerMode.CodexAppServer) "远程 Codex" else "ACP / Bridge",
+                    icon = {
+                        Text(
+                            stringResource(
+                                if (uiState.serverMode == ServerMode.CodexAppServer) {
+                                    R.string.status_mode_codex
+                                } else {
+                                    R.string.status_mode_acp
+                                }
+                            )
+                        )
+                    },
+                    text = stringResource(
+                        if (uiState.serverMode == ServerMode.CodexAppServer) {
+                            R.string.overview_mode_codex
+                        } else {
+                            R.string.overview_mode_acp_bridge
+                        }
+                    ),
                 )
                 StatusChip(
                     icon = { Icon(Icons.Outlined.Link, contentDescription = null) },
@@ -1114,7 +1216,9 @@ private fun HomeOverviewCard(uiState: AcpUiState) {
                 )
             }
             Text(
-                text = uiState.workingDirectory.ifBlank { "未指定默认目录" },
+                text = uiState.workingDirectory.ifBlank {
+                    stringResource(R.string.overview_default_directory)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -1122,15 +1226,19 @@ private fun HomeOverviewCard(uiState: AcpUiState) {
             )
             Text(
                 text = if (uiState.serverMode == ServerMode.CodexAppServer) {
-                    "线程 ${uiState.sessionSummaries.size} 个，待审批 ${uiState.pendingApprovals.size} 个。"
+                    stringResource(
+                        R.string.overview_threads_pending,
+                        uiState.sessionSummaries.size,
+                        uiState.pendingApprovals.size,
+                    )
                 } else {
-                    "Bridge 状态：${uiState.bridgeStatus}"
+                    stringResource(R.string.overview_bridge_status, uiState.bridgeStatus)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "自动重连：${uiState.reconnectStatus}",
+                text = stringResource(R.string.overview_auto_reconnect, uiState.reconnectStatus),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1150,11 +1258,11 @@ private fun ThreadActionsCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "线程操作",
+                text = stringResource(R.string.thread_actions_title),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = "安全策略、默认访问和连接参数都已放到设置里，首页只保留最常用的线程动作。",
+                text = stringResource(R.string.thread_actions_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1166,18 +1274,18 @@ private fun ThreadActionsCard(
                     onClick = onRefreshSessions,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("刷新线程")
+                    Text(stringResource(R.string.action_refresh_threads))
                 }
                 Button(
                     onClick = onOpenNewThreadSetup,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("新建线程")
+                    Text(stringResource(R.string.action_create_thread))
                 }
             }
             if (uiState.workingDirectory.isNotBlank()) {
                 Text(
-                    text = "当前目录：${uiState.workingDirectory}",
+                    text = stringResource(R.string.label_current_directory, uiState.workingDirectory),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1196,23 +1304,24 @@ private fun ThreadSetupHintCard(
     val actionLabel: String
     when {
         !uiState.isConnected -> {
-            title = "还没连上电脑"
-            message = "还没有连上电脑端 Codex。去设置里扫码连接或者填写连接参数。"
-            actionLabel = "打开设置"
+            title = stringResource(R.string.thread_setup_not_connected_title)
+            message = stringResource(R.string.thread_setup_not_connected_message)
+            actionLabel = stringResource(R.string.action_open_settings)
         }
 
-        uiState.initializationStatus != "已初始化" -> {
-            title = "已连接，还没完成初始化"
-            message =
-                "现在只完成了 WebSocket 连接，Codex 还没进入可用状态。" +
-                "当前状态：${uiState.initializationStatus}。去设置页重试 Initialize。"
-            actionLabel = "去设置重试"
+        !uiState.isInitialized -> {
+            title = stringResource(R.string.thread_setup_not_initialized_title)
+            message = stringResource(
+                R.string.thread_setup_not_initialized_message,
+                uiState.initializationStatus,
+            )
+            actionLabel = stringResource(R.string.action_retry_in_settings)
         }
 
         else -> {
-            title = "线程环境还没准备好"
-            message = "当前线程环境还没准备好。"
-            actionLabel = "打开设置"
+            title = stringResource(R.string.thread_setup_environment_unready_title)
+            message = stringResource(R.string.thread_setup_environment_unready_message)
+            actionLabel = stringResource(R.string.action_open_settings)
         }
     }
 
@@ -1248,11 +1357,11 @@ private fun ThreadEmptyCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "还没有线程",
+                text = stringResource(R.string.thread_empty_title),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = "你可以先刷新现有线程，或者直接新建一个线程开始使用。",
+                text = stringResource(R.string.thread_empty_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1264,13 +1373,13 @@ private fun ThreadEmptyCard(
                     onClick = onRefreshSessions,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("刷新")
+                    Text(stringResource(R.string.action_refresh))
                 }
                 Button(
                     onClick = onOpenNewThreadSetup,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("新建线程")
+                    Text(stringResource(R.string.action_create_thread))
                 }
             }
         }
@@ -1315,6 +1424,7 @@ private fun ThreadMiniCard(
     val displayTitle = threadDisplayTitle(
         cwd = summary.cwd,
         fallbackTitle = summary.title,
+        unnamedTitle = stringResource(R.string.thread_title_unnamed),
     )
     val previewLabel = threadPreviewLabel(
         rawTitle = summary.title,
@@ -1348,7 +1458,7 @@ private fun ThreadMiniCard(
                 )
                 summary.updatedAtEpochSeconds?.let { updatedAt ->
                     Text(
-                        text = sessionTimeFormatter.format(Instant.ofEpochSecond(updatedAt)),
+                        text = sessionTimeLabel(updatedAt),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1361,12 +1471,12 @@ private fun ThreadMiniCard(
                 ) {
                     if (isRunning) {
                         ThreadStateBadge(
-                            text = "执行中",
+                            text = stringResource(R.string.thread_running),
                             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                         )
                     } else if (isRecentlyCompleted) {
                         ThreadStateBadge(
-                            text = "刚完成",
+                            text = stringResource(R.string.thread_recently_completed),
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         )
                     }
@@ -1385,7 +1495,15 @@ private fun ThreadMiniCard(
                 onClick = onOpen,
                 modifier = Modifier.align(Alignment.End),
             ) {
-                Text(if (isSelected) "继续查看" else "打开")
+                Text(
+                    stringResource(
+                        if (isSelected) {
+                            R.string.action_continue_viewing
+                        } else {
+                            R.string.action_open
+                        }
+                    )
+                )
             }
         }
     }
@@ -1420,16 +1538,16 @@ private fun LoadMoreThreadsCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = "当前先显示最近两条线程，你可以按需继续展开。",
+                text = stringResource(R.string.thread_load_more_intro),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                text = "还有 $remainingThreadCount 个线程可显示。",
+                text = stringResource(R.string.thread_load_more_remaining, remainingThreadCount),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Button(onClick = onLoadMore) {
-                Text("显示更多")
+                Text(stringResource(R.string.action_show_more))
             }
         }
     }
@@ -1446,11 +1564,11 @@ private fun AcpHomeCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "当前处于 ACP / Bridge 模式",
+                text = stringResource(R.string.acp_home_title),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = "连接、扫码、Bridge 参数都已经挪到设置页。主界面只保留结果查看和日志。",
+                text = stringResource(R.string.acp_home_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1463,7 +1581,7 @@ private fun AcpHomeCard(
                 )
             }
             Button(onClick = onOpenSettings) {
-                Text("去设置")
+                Text(stringResource(R.string.action_go_settings))
             }
         }
     }
@@ -1474,17 +1592,18 @@ private fun SecuritySettingsCard(
     currentPreset: CodexPermissionPreset,
     onPermissionPresetChange: (CodexPermissionPreset) -> Unit,
 ) {
+    val context = LocalContext.current
     Card {
         Column(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = "执行安全",
+                text = stringResource(R.string.security_title),
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
-                text = "新线程默认继承这里的权限预设。",
+                text = stringResource(R.string.security_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1493,7 +1612,7 @@ private fun SecuritySettingsCard(
             ) {
                 CodexPermissionPreset.entries.forEach { preset ->
                     ScopePill(
-                        label = preset.displayName,
+                        label = preset.displayName(context),
                         selected = currentPreset == preset,
                         onClick = { onPermissionPresetChange(preset) },
                     )
@@ -1516,13 +1635,15 @@ private fun CodexThreadDetailScreen(
     onApprove: (kotlinx.serialization.json.JsonElement) -> Unit,
     onDecline: (kotlinx.serialization.json.JsonElement) -> Unit,
 ) {
+    val threadDetailFallbackTitle = stringResource(R.string.thread_detail_title)
     val isLoaded = uiState.sessionId == threadId
     val transcriptEntries = if (isLoaded) uiState.transcriptEntries else emptyList()
     val currentSummary = uiState.sessionSummaries.firstOrNull { it.id == threadId }
     val threadPath = currentSummary?.cwd ?: uiState.workingDirectory.takeIf { isLoaded && it.isNotBlank() }
     val displayTitle = threadDisplayTitle(
         cwd = threadPath,
-        fallbackTitle = threadTitle.ifBlank { "线程详情" },
+        fallbackTitle = threadTitle.ifBlank { threadDetailFallbackTitle },
+        unnamedTitle = stringResource(R.string.thread_title_unnamed),
     )
     var visibleEntryCount by rememberSaveable(threadId) {
         mutableStateOf(TRANSCRIPT_PAGE_SIZE)
@@ -1610,7 +1731,13 @@ private fun CodexThreadDetailScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = if (isLoaded) "已进入线程，可继续聊天" else "正在加载线程历史…",
+                            text = stringResource(
+                                if (isLoaded) {
+                                    R.string.thread_detail_loaded_subtitle
+                                } else {
+                                    R.string.thread_detail_loading_subtitle
+                                }
+                            ),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1618,12 +1745,18 @@ private fun CodexThreadDetailScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back),
+                        )
                     }
                 },
                 actions = {
                     IconButton(onClick = onRefresh) {
-                        Icon(Icons.Outlined.Refresh, contentDescription = "刷新线程")
+                        Icon(
+                            Icons.Outlined.Refresh,
+                            contentDescription = stringResource(R.string.action_refresh_threads),
+                        )
                     }
                 }
             )
@@ -1695,7 +1828,27 @@ private fun ThreadDetailHeaderCard(
     val displayTitle = threadDisplayTitle(
         cwd = cwd,
         fallbackTitle = threadTitle,
+        unnamedTitle = stringResource(R.string.thread_title_unnamed),
     )
+    val headerSummary = stringResource(
+        R.string.thread_detail_header_summary,
+        totalEntries,
+        visibleEntries,
+    )
+    val headerMore = if (hiddenEntries > 0) {
+        stringResource(
+            R.string.thread_detail_header_more,
+            TRANSCRIPT_PAGE_SIZE,
+            hiddenEntries,
+        )
+    } else {
+        ""
+    }
+    val headerRunning = if (isStreaming) {
+        stringResource(R.string.thread_detail_header_running)
+    } else {
+        ""
+    }
     val previewLabel = threadPreviewLabel(
         rawTitle = threadTitle,
         cwd = cwd,
@@ -1730,23 +1883,9 @@ private fun ThreadDetailHeaderCard(
             }
             Text(
                 text = buildString {
-                    append("已加载 ")
-                    append(totalEntries)
-                    append(" 条记录")
-                    append("，当前先显示最近 ")
-                    append(visibleEntries)
-                    append(" 条")
-                    append("，最新内容在底部")
-                    if (hiddenEntries > 0) {
-                        append("，滑到顶部会继续补 ")
-                        append(TRANSCRIPT_PAGE_SIZE)
-                        append(" 条更早记录，当前还剩 ")
-                        append(hiddenEntries)
-                        append(" 条")
-                    }
-                    if (isStreaming) {
-                        append("，当前线程执行中")
-                    }
+                    append(headerSummary)
+                    append(headerMore)
+                    append(headerRunning)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1770,11 +1909,11 @@ private fun ThreadLoadingCard() {
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    text = "正在读取线程历史",
+                    text = stringResource(R.string.thread_loading_title),
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 Text(
-                    text = "如果这个线程很长，第一次打开会比普通消息稍慢一些。",
+                    text = stringResource(R.string.thread_loading_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1811,13 +1950,13 @@ private fun ThreadPromptBar(
                     .fillMaxWidth()
                     .height(132.dp),
                 enabled = enabled,
-                label = { Text("继续在当前线程输入任务") },
+                label = { Text(stringResource(R.string.thread_prompt_label)) },
                 supportingText = {
                     Text(
                         if (enabled) {
-                            "发送后会继续沿用当前线程的上下文。"
+                            stringResource(R.string.thread_prompt_hint_enabled)
                         } else {
-                            "线程还没加载完成，暂时不能发送。"
+                            stringResource(R.string.thread_prompt_hint_disabled)
                         }
                     )
                 },
@@ -1829,7 +1968,7 @@ private fun ThreadPromptBar(
             ) {
                 Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("发送")
+                Text(stringResource(R.string.action_send))
             }
         }
     }
@@ -1851,8 +1990,24 @@ private fun StatusCard(uiState: AcpUiState) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 StatusChip(
-                    icon = { Text(if (uiState.serverMode == ServerMode.CodexAppServer) "Codex" else "ACP") },
-                    text = if (uiState.serverMode == ServerMode.CodexAppServer) "远程 Codex" else "ACP / WeClaw",
+                    icon = {
+                        Text(
+                            stringResource(
+                                if (uiState.serverMode == ServerMode.CodexAppServer) {
+                                    R.string.status_mode_codex
+                                } else {
+                                    R.string.status_mode_acp
+                                }
+                            )
+                        )
+                    },
+                    text = stringResource(
+                        if (uiState.serverMode == ServerMode.CodexAppServer) {
+                            R.string.overview_mode_codex
+                        } else {
+                            R.string.overview_mode_acp_weclaw
+                        }
+                    ),
                 )
                 StatusChip(
                     icon = { androidx.compose.material3.Icon(Icons.Outlined.Link, contentDescription = null) },
@@ -1870,40 +2025,56 @@ private fun StatusCard(uiState: AcpUiState) {
             ) {
                 StatusChip(
                     icon = { androidx.compose.material3.Icon(Icons.Outlined.Terminal, contentDescription = null) },
-                    text = uiState.sessionId ?: if (uiState.serverMode == ServerMode.CodexAppServer) "未选择线程" else "未创建会话",
+                    text = uiState.sessionId ?: stringResource(
+                        if (uiState.serverMode == ServerMode.CodexAppServer) {
+                            R.string.status_no_thread_selected
+                        } else {
+                            R.string.status_no_session_created
+                        }
+                    ),
                 )
                 StatusChip(
-                    icon = { Text("Turn") },
-                    text = uiState.currentTurnId ?: if (uiState.isStreaming) "执行中" else "空闲",
+                    icon = { Text(stringResource(R.string.status_mode_turn)) },
+                    text = uiState.currentTurnId ?: stringResource(
+                        if (uiState.isStreaming) {
+                            R.string.status_running
+                        } else {
+                            R.string.status_idle
+                        }
+                    ),
                 )
             }
 
             Text(
-                text = "Agent: ${uiState.agentLabel}",
+                text = stringResource(R.string.label_agent, uiState.agentLabel),
                 style = MaterialTheme.typography.bodyMedium,
             )
             uiState.promptSource?.let { source ->
                 Text(
-                    text = "当前 Prompt 来源: $source",
+                    text = stringResource(R.string.label_prompt_source, source),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
             if (uiState.serverMode == ServerMode.CodexAppServer) {
                 Text(
-                    text = "线程数: ${uiState.sessionSummaries.size}，待审批: ${uiState.pendingApprovals.size}",
+                    text = stringResource(
+                        R.string.overview_threads_pending,
+                        uiState.sessionSummaries.size,
+                        uiState.pendingApprovals.size,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 Text(
-                    text = "WeClaw Bridge: ${uiState.bridgeStatus}",
+                    text = stringResource(R.string.overview_bridge_status, uiState.bridgeStatus),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 uiState.bridgePublicUrl?.let { publicUrl ->
                     Text(
-                        text = "OpenAI 兼容入口: $publicUrl",
+                        text = stringResource(R.string.label_openai_compatible_entry, publicUrl),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -1951,14 +2122,14 @@ private fun PairingCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = "连接方式",
+                text = stringResource(R.string.pairing_title),
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
                 text = if (uiState.isConnected) {
-                    "已连接。如需换电脑，重新扫码即可。"
+                    stringResource(R.string.pairing_connected_description)
                 } else {
-                    "优先用扫码连接；手动配置放在下面折叠区。"
+                    stringResource(R.string.pairing_disconnected_description)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1969,10 +2140,24 @@ private fun PairingCard(
                 Button(onClick = onScanPairCode) {
                     androidx.compose.material3.Icon(Icons.Outlined.QrCodeScanner, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (uiState.isConnected) "重扫" else "扫码")
+                    Text(
+                        stringResource(
+                            if (uiState.isConnected) {
+                                R.string.action_rescan
+                            } else {
+                                R.string.action_scan
+                            }
+                        )
+                    )
                 }
                 SmallToolbarButton(
-                    label = if (showManualConfig) "收起" else "手动",
+                    label = stringResource(
+                        if (showManualConfig) {
+                            R.string.action_collapse
+                        } else {
+                            R.string.action_manual
+                        }
+                    ),
                     onClick = onToggleManualConfig,
                     outlined = true,
                 )
@@ -2003,7 +2188,7 @@ private fun ConnectionCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "高级连接",
+                text = stringResource(R.string.advanced_connection_title),
                 style = MaterialTheme.typography.titleSmall,
             )
 
@@ -2012,12 +2197,12 @@ private fun ConnectionCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 ScopePill(
-                    label = "Codex 远程",
+                    label = stringResource(R.string.server_mode_codex_remote),
                     selected = isCodex,
                     onClick = { onServerModeChange(ServerMode.CodexAppServer) },
                 )
                 ScopePill(
-                    label = "ACP / Bridge",
+                    label = stringResource(R.string.server_mode_acp_bridge),
                     selected = !isCodex,
                     onClick = { onServerModeChange(ServerMode.ACP) },
                 )
@@ -2027,13 +2212,23 @@ private fun ConnectionCard(
                 value = uiState.endpoint,
                 onValueChange = onEndpointChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text(if (isCodex) "Codex WebSocket 地址" else "ACP WebSocket 地址") },
+                label = {
+                    Text(
+                        stringResource(
+                            if (isCodex) {
+                                R.string.field_codex_ws
+                            } else {
+                                R.string.field_acp_ws
+                            }
+                        )
+                    )
+                },
                 supportingText = {
                     Text(
                         if (isCodex) {
-                            "例如 wss://agent.example.com"
+                            stringResource(R.string.field_codex_ws_hint)
                         } else {
-                            "例如 ws://192.168.1.20:8765/message"
+                            stringResource(R.string.field_acp_ws_hint)
                         }
                     )
                 },
@@ -2044,7 +2239,7 @@ private fun ConnectionCard(
                 value = uiState.bearerToken,
                 onValueChange = onBearerTokenChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Bearer Token") },
+                label = { Text(stringResource(R.string.field_bearer_token)) },
                 singleLine = true,
             )
 
@@ -2052,7 +2247,7 @@ private fun ConnectionCard(
                 value = uiState.cfAccessClientId,
                 onValueChange = onCfAccessClientIdChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("CF Access Client ID") },
+                label = { Text(stringResource(R.string.field_cf_access_client_id)) },
                 singleLine = true,
             )
 
@@ -2060,7 +2255,7 @@ private fun ConnectionCard(
                 value = uiState.cfAccessClientSecret,
                 onValueChange = onCfAccessClientSecretChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("CF Access Client Secret") },
+                label = { Text(stringResource(R.string.field_cf_access_client_secret)) },
                 singleLine = true,
             )
 
@@ -2068,13 +2263,13 @@ private fun ConnectionCard(
                 value = uiState.workingDirectory,
                 onValueChange = onWorkingDirectoryChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("工作目录") },
+                label = { Text(stringResource(R.string.field_working_directory)) },
                 supportingText = {
                     Text(
                         if (isCodex) {
-                            "留空则使用服务端默认目录。"
+                            stringResource(R.string.field_working_directory_hint_codex)
                         } else {
-                            "用于 session/new。"
+                            stringResource(R.string.field_working_directory_hint_acp)
                         }
                     )
                 },
@@ -2085,17 +2280,28 @@ private fun ConnectionCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                SmallToolbarButton(label = "连接", onClick = onConnect)
-                SmallToolbarButton(label = "断开", onClick = onDisconnect, outlined = true)
+                SmallToolbarButton(label = stringResource(R.string.action_connect), onClick = onConnect)
+                SmallToolbarButton(
+                    label = stringResource(R.string.action_disconnect),
+                    onClick = onDisconnect,
+                    outlined = true,
+                )
             }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                SmallToolbarButton(label = "初始化", onClick = onInitialize, outlined = true)
+                SmallToolbarButton(
+                    label = stringResource(R.string.action_initialize),
+                    onClick = onInitialize,
+                    outlined = true,
+                )
                 if (!isCodex) {
-                    SmallToolbarButton(label = "建 Session", onClick = onCreateSession)
+                    SmallToolbarButton(
+                        label = stringResource(R.string.action_create_session),
+                        onClick = onCreateSession,
+                    )
                 }
             }
         }
@@ -2134,24 +2340,25 @@ private fun CodexControlCard(
     onOpenSession: (RemoteSessionSummary) -> Unit,
     onPermissionPresetChange: (CodexPermissionPreset) -> Unit,
 ) {
+    val context = LocalContext.current
     Card {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "线程列表",
+                text = stringResource(R.string.thread_list_title),
                 style = MaterialTheme.typography.titleMedium,
             )
 
             Text(
-                text = "先在这里选择线程，点进去后再查看历史并继续聊天。",
+                text = stringResource(R.string.codex_control_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Text(
-                text = "权限预设",
+                text = stringResource(R.string.codex_control_permission_preset),
                 style = MaterialTheme.typography.labelLarge,
             )
 
@@ -2161,7 +2368,7 @@ private fun CodexControlCard(
             ) {
                 CodexPermissionPreset.entries.forEach { preset ->
                     ToggleButton(
-                        label = preset.displayName,
+                        label = preset.displayName(context),
                         selected = uiState.codexPermissionPreset == preset,
                         onClick = { onPermissionPresetChange(preset) },
                         modifier = Modifier.weight(1f),
@@ -2177,25 +2384,31 @@ private fun CodexControlCard(
                     onClick = onRefreshSessions,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("刷新线程")
+                    Text(stringResource(R.string.action_refresh_threads))
                 }
                 Button(
                     onClick = onCreateSession,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("新建线程")
+                    Text(stringResource(R.string.action_create_thread))
                 }
             }
 
             if (uiState.sessionSummaries.isEmpty()) {
                 Text(
-                    text = "还没有加载到线程。先连接并 Initialize，再点“刷新线程”或“新建线程”。",
+                    text = stringResource(R.string.codex_control_empty),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 Text(
-                    text = if (uiState.workingDirectory.isBlank()) "线程列表" else "当前目录线程",
+                    text = stringResource(
+                        if (uiState.workingDirectory.isBlank()) {
+                            R.string.thread_list_title
+                        } else {
+                            R.string.codex_control_current_directory_threads
+                        }
+                    ),
                     style = MaterialTheme.typography.labelLarge,
                 )
                 if (uiState.workingDirectory.isNotBlank()) {
@@ -2257,7 +2470,10 @@ private fun SessionSummaryCard(
             }
             summary.updatedAtEpochSeconds?.let { updatedAt ->
                 Text(
-                    text = "更新时间 ${sessionTimeFormatter.format(Instant.ofEpochSecond(updatedAt))}",
+                    text = stringResource(
+                        R.string.label_updated_at,
+                        sessionTimeLabel(updatedAt),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -2266,7 +2482,15 @@ private fun SessionSummaryCard(
                 onClick = onOpen,
                 modifier = Modifier.align(Alignment.End),
             ) {
-                Text(if (isSelected) "进入详情" else "打开线程")
+                Text(
+                    stringResource(
+                        if (isSelected) {
+                            R.string.thread_detail_title
+                        } else {
+                            R.string.action_open
+                        }
+                    )
+                )
             }
         }
     }
@@ -2284,7 +2508,7 @@ private fun PromptCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "任务输入",
+                text = stringResource(R.string.prompt_card_title),
                 style = MaterialTheme.typography.titleMedium,
             )
             OutlinedTextField(
@@ -2293,13 +2517,13 @@ private fun PromptCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(168.dp),
-                label = { Text("Prompt") },
+                label = { Text(stringResource(R.string.field_prompt)) },
                 supportingText = {
                     Text(
                         if (uiState.serverMode == ServerMode.CodexAppServer) {
-                            "发送后会在当前线程执行；如果还没选线程，应用会自动先创建一个。"
+                            stringResource(R.string.prompt_hint_codex)
                         } else {
-                            "支持从 agmente://task 或分享文本直接填充。"
+                            stringResource(R.string.prompt_hint_acp)
                         }
                     )
                 },
@@ -2310,7 +2534,7 @@ private fun PromptCard(
             ) {
                 androidx.compose.material3.Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("发送")
+                Text(stringResource(R.string.action_send))
             }
         }
     }
@@ -2332,7 +2556,7 @@ private fun ApprovalCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "待审批请求",
+                text = stringResource(R.string.thread_approval_title),
                 style = MaterialTheme.typography.titleMedium,
             )
             approvals.forEach { approval ->
@@ -2366,7 +2590,7 @@ private fun ApprovalCard(
                         }
                         approval.cwd?.let { cwd ->
                             Text(
-                                text = "cwd: $cwd",
+                                text = stringResource(R.string.label_cwd, cwd),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -2386,13 +2610,13 @@ private fun ApprovalCard(
                                 onClick = { onApprove(approval.requestId) },
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Text("批准")
+                                Text(stringResource(R.string.action_approve))
                             }
                             OutlinedButton(
                                 onClick = { onDecline(approval.requestId) },
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Text("拒绝")
+                                Text(stringResource(R.string.action_reject))
                             }
                         }
                     }
@@ -2410,17 +2634,17 @@ private fun TranscriptHeaderCard(uiState: AcpUiState) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "会话历史",
+                text = stringResource(R.string.thread_transcript_history_title),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = uiState.sessionId ?: "当前还没有线程",
+                text = uiState.sessionId ?: stringResource(R.string.thread_transcript_history_empty),
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "这里会显示用户输入、助手输出、命令执行、文件变更以及流式回传。",
+                text = stringResource(R.string.thread_transcript_history_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -2436,11 +2660,11 @@ private fun TranscriptEmptyCard() {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = "当前还没有历史记录",
+                text = stringResource(R.string.thread_transcript_empty_title),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                text = "打开已有线程后，这里会显示最近的对话和工具执行记录。",
+                text = stringResource(R.string.thread_transcript_empty_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -2456,6 +2680,7 @@ private fun TranscriptEntryCard(entry: TranscriptEntry) {
         TranscriptRole.Tool -> MaterialTheme.colorScheme.tertiary
         TranscriptRole.System -> MaterialTheme.colorScheme.outline
     }
+    val waitingOutputLabel = stringResource(R.string.label_waiting_output)
 
     Card(
         colors = CardDefaults.cardColors(
@@ -2491,7 +2716,7 @@ private fun TranscriptEntryCard(entry: TranscriptEntry) {
                     )
                     if (entry.isStreaming) {
                         Text(
-                            text = "流式中",
+                            text = stringResource(R.string.label_streaming),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -2507,7 +2732,7 @@ private fun TranscriptEntryCard(entry: TranscriptEntry) {
                 }
                 SelectionContainer {
                     Text(
-                        text = entry.text.ifBlank { "正在等待输出…" },
+                        text = entry.text.ifBlank { waitingOutputLabel },
                         style = MaterialTheme.typography.bodyMedium,
                         fontFamily = FontFamily.Monospace,
                     )
@@ -2531,16 +2756,16 @@ private fun BridgeCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "WeClaw Bridge",
+                text = stringResource(R.string.bridge_title),
                 style = MaterialTheme.typography.titleSmall,
             )
             OutlinedTextField(
                 value = uiState.bridgeListenAddress,
                 onValueChange = onListenAddressChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("监听地址") },
+                label = { Text(stringResource(R.string.field_listen_address)) },
                 supportingText = {
-                    Text("例如 0.0.0.0:18080")
+                    Text(stringResource(R.string.field_listen_address_hint))
                 },
                 singleLine = true,
             )
@@ -2548,12 +2773,12 @@ private fun BridgeCard(
                 value = uiState.bridgeApiToken,
                 onValueChange = onApiTokenChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Bridge Bearer Token") },
+                label = { Text(stringResource(R.string.field_bridge_bearer_token)) },
                 singleLine = true,
             )
             uiState.bridgePublicUrl?.let { publicUrl ->
                 Text(
-                    text = "入口: $publicUrl",
+                    text = stringResource(R.string.label_bridge_entry, publicUrl),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
@@ -2561,7 +2786,7 @@ private fun BridgeCard(
                 )
             }
             Text(
-                text = "息屏或系统回收后 Bridge 可能中断。",
+                text = stringResource(R.string.bridge_background_warning),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -2569,8 +2794,12 @@ private fun BridgeCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                SmallToolbarButton(label = "启动", onClick = onStart)
-                SmallToolbarButton(label = "停止", onClick = onStop, outlined = true)
+                SmallToolbarButton(label = stringResource(R.string.action_start), onClick = onStart)
+                SmallToolbarButton(
+                    label = stringResource(R.string.action_stop),
+                    onClick = onStop,
+                    outlined = true,
+                )
             }
         }
     }
@@ -2588,19 +2817,21 @@ private fun LatestReplyCard(uiState: AcpUiState) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "最近一次输出",
+                text = stringResource(R.string.latest_output_title),
                 style = MaterialTheme.typography.titleMedium,
             )
             uiState.lastStopReason?.let { stopReason ->
                 Text(
-                    text = "stopReason: $stopReason",
+                    text = stringResource(R.string.label_stop_reason, stopReason),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             SelectionContainer {
                 Text(
-                    text = uiState.lastAssistantMessage.ifBlank { "当前还没有可显示的文本输出。" },
+                    text = uiState.lastAssistantMessage.ifBlank {
+                        stringResource(R.string.latest_output_empty)
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     fontFamily = FontFamily.Monospace,
                 )

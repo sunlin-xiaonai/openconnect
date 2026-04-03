@@ -1,0 +1,9 @@
+.gradle/
+.idea/
+.agmente-runtime/
+dist/
+build/
+app/build/
+captures/
+local.properties
+*.iml

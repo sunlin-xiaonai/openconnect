@@ -6,10 +6,10 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -18,7 +18,7 @@ import com.agmente.android.ui.theme.AgmenteAndroidTheme
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
     companion object {
         private const val PREFS_NAME = "agmente_permissions"
         private const val KEY_NOTIFICATIONS_REQUESTED = "notifications_requested"
@@ -33,7 +33,7 @@ class MainActivity : ComponentActivity() {
         if (granted) {
             launchPairScanner()
         } else {
-            val message = "未授予相机权限，无法扫码连接"
+            val message = getString(R.string.toast_camera_permission_denied)
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
             viewModel.onScannerFailure(message)
         }
@@ -44,7 +44,11 @@ class MainActivity : ComponentActivity() {
     ) { granted ->
         notificationsGranted = granted
         if (!granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Toast.makeText(this, "未授予通知权限，后台完成提醒将不可用", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                getString(R.string.toast_notifications_permission_denied),
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
@@ -107,7 +111,7 @@ class MainActivity : ComponentActivity() {
         val options = ScanOptions().apply {
             setCaptureActivity(PortraitCaptureActivity::class.java)
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt("扫描 Agmente 配对二维码")
+            setPrompt(getString(R.string.scan_prompt_pair_qr))
             setBeepEnabled(false)
             setBarcodeImageEnabled(false)
             setOrientationLocked(true)

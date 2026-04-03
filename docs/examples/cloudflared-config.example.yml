@@ -1,0 +1,10 @@
+tunnel: YOUR_TUNNEL_ID
+credentials-file: /Users/YOU/.cloudflared/YOUR_TUNNEL_ID.json
+
+ingress:
+  - hostname: codex.example.com
+    service: http://127.0.0.1:9000
+    originRequest:
+      noTLSVerify: true
+
+  - service: http_status:404

@@ -73,6 +73,7 @@ enum class LogKind {
 
 data class AcpUiState(
     val serverMode: ServerMode = ServerMode.CodexAppServer,
+    val appLanguage: AppLanguage = AppLanguage.System,
     val endpoint: String = "",
     val bearerToken: String = "",
     val cfAccessClientId: String = "",
@@ -80,9 +81,10 @@ data class AcpUiState(
     val workingDirectory: String = "",
     val prompt: String = "",
     val sessionId: String? = null,
-    val connectionStatus: String = "未连接",
-    val initializationStatus: String = "未初始化",
-    val agentLabel: String = "未识别 Agent",
+    val connectionStatus: String = "",
+    val initializationStatus: String = "",
+    val isInitialized: Boolean = false,
+    val agentLabel: String = "",
     val promptSource: String? = null,
     val codexPermissionPreset: CodexPermissionPreset = CodexPermissionPreset.Safe,
     val sessionSummaries: List<RemoteSessionSummary> = emptyList(),
@@ -92,7 +94,7 @@ data class AcpUiState(
     val isStreaming: Boolean = false,
     val bridgeListenAddress: String = "0.0.0.0:18080",
     val bridgeApiToken: String = "",
-    val bridgeStatus: String = "未启动",
+    val bridgeStatus: String = "",
     val bridgePublicUrl: String? = null,
     val lastAssistantMessage: String = "",
     val lastStopReason: String? = null,
@@ -100,7 +102,8 @@ data class AcpUiState(
     val logs: List<LogEntry> = emptyList(),
     val isConnected: Boolean = false,
     val autoReconnectEnabled: Boolean = true,
-    val reconnectStatus: String = "已开启，等待连接",
+    val reconnectStatus: String = "",
+    val isReconnectScheduled: Boolean = false,
     val pendingThreadNavigationId: String? = null,
 )
 
@@ -182,6 +185,25 @@ class AcpViewModel(
         ignoreUnknownKeys = true
     }
 
+    private val app: Application = application
+
+    private fun string(resId: Int, vararg args: Any): String =
+        app.getString(resId, *args)
+
+    private fun initialUiState(): AcpUiState =
+        AcpUiState(
+            connectionStatus = string(R.string.status_connection_disconnected),
+            initializationStatus = string(R.string.status_initialization_uninitialized),
+            agentLabel = string(R.string.status_agent_label_default),
+            bridgeStatus = string(R.string.status_bridge_stopped),
+            reconnectStatus = reconnectStatusText(
+                enabled = true,
+                shouldKeepConnected = false,
+                isConnected = false,
+                attempt = 0,
+            ),
+        )
+
     private val terminalManager = LocalTerminalManager()
     private val preferences: SharedPreferences =
         application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -212,7 +234,7 @@ class AcpViewModel(
     private val pendingRequests = ConcurrentHashMap<String, PendingRequest>()
     private val activePrompts = ConcurrentHashMap<String, PromptAccumulator>()
     private val promptMutex = Mutex()
-    private val _uiState = MutableStateFlow(AcpUiState())
+    private val _uiState = MutableStateFlow(initialUiState())
     val uiState: StateFlow<AcpUiState> = _uiState.asStateFlow()
 
     private var nextLogId = 1L
@@ -247,7 +269,11 @@ class AcpViewModel(
                 pendingApprovals = emptyList(),
                 currentTurnId = null,
                 isStreaming = false,
-                bridgeStatus = if (value == ServerMode.ACP) it.bridgeStatus else "未启动",
+                bridgeStatus = if (value == ServerMode.ACP) {
+                    it.bridgeStatus
+                } else {
+                    string(R.string.status_bridge_stopped)
+                },
                 bridgePublicUrl = if (value == ServerMode.ACP) it.bridgePublicUrl else null,
                 lastAssistantMessage = "",
                 lastStopReason = null,
@@ -259,6 +285,14 @@ class AcpViewModel(
     fun updateEndpoint(value: String) {
         _uiState.update { it.copy(endpoint = value) }
         persistConnectionState()
+    }
+
+    fun updateAppLanguage(value: AppLanguage) {
+        if (_uiState.value.appLanguage == value) {
+            return
+        }
+        _uiState.update { it.copy(appLanguage = value) }
+        AppLanguageManager.update(app, value)
     }
 
     fun updateBearerToken(value: String) {
@@ -300,6 +334,7 @@ class AcpViewModel(
                     isConnected = it.isConnected,
                     attempt = reconnectAttempt,
                 ),
+                isReconnectScheduled = false,
             )
         }
         if (!value) {
@@ -359,8 +394,9 @@ class AcpViewModel(
         activeTransportMode = targetServerMode
         _uiState.update {
             it.copy(
-                connectionStatus = "连接中…",
-                initializationStatus = "未初始化",
+                connectionStatus = string(R.string.status_connection_connecting),
+                initializationStatus = string(R.string.status_initialization_uninitialized),
+                isInitialized = false,
                 reconnectStatus = reconnectStatusText(
                     enabled = it.autoReconnectEnabled,
                     shouldKeepConnected = shouldStayConnected,
@@ -368,6 +404,7 @@ class AcpViewModel(
                     attempt = reconnectAttempt,
                     isConnecting = true,
                 ),
+                isReconnectScheduled = preserveReconnectAttempt && reconnectAttempt > 0,
             )
         }
         persistConnectionState()
@@ -408,7 +445,8 @@ class AcpViewModel(
                     shouldKeepConnected = shouldStayConnected,
                     isConnected = false,
                     attempt = reconnectAttempt,
-                )
+                ),
+                isReconnectScheduled = false,
             )
         }
         persistConnectionState()
@@ -428,8 +466,9 @@ class AcpViewModel(
         _uiState.update {
             it.copy(
                 isConnected = false,
-                connectionStatus = "已断开",
-                initializationStatus = "未初始化",
+                connectionStatus = string(R.string.status_connection_closed),
+                initializationStatus = string(R.string.status_initialization_uninitialized),
+                isInitialized = false,
                 currentTurnId = null,
                 isStreaming = false,
                 pendingApprovals = emptyList(),
@@ -439,6 +478,7 @@ class AcpViewModel(
                     isConnected = false,
                     attempt = reconnectAttempt,
                 ),
+                isReconnectScheduled = false,
             )
         }
     }
@@ -616,9 +656,11 @@ class AcpViewModel(
                     } else {
                         RemoteSessionSummary(
                             id = state.sessionId,
-                            title = state.sessionSummaries.firstOrNull { it.id == state.sessionId }?.title ?: "当前线程",
+                            title = state.sessionSummaries.firstOrNull { it.id == state.sessionId }?.title
+                                ?: string(R.string.label_current_thread),
                             cwd = state.workingDirectory.ifBlank { null },
                             updatedAtEpochSeconds = null,
+                            isRunning = state.sessionSummaries.firstOrNull { it.id == state.sessionId }?.isRunning ?: false,
                         )
                     }
                     appendLocalCodexUserPrompt(threadSummary.id, state.prompt)
@@ -662,7 +704,7 @@ class AcpViewModel(
         }.onSuccess {
             _uiState.update {
                 it.copy(
-                    bridgeStatus = "运行中",
+                    bridgeStatus = string(R.string.status_bridge_running),
                     bridgePublicUrl = buildBridgePublicUrl(binding),
                 )
             }
@@ -675,7 +717,7 @@ class AcpViewModel(
         bridgeServer.stop()
         _uiState.update {
             it.copy(
-                bridgeStatus = "未启动",
+                bridgeStatus = string(R.string.status_bridge_stopped),
                 bridgePublicUrl = null,
             )
         }
@@ -747,7 +789,13 @@ class AcpViewModel(
                     _uiState.update {
                         it.copy(
                             prompt = prompt,
-                            promptSource = if (uri.host.equals("connect", ignoreCase = true)) "配对二维码" else "Deep link",
+                            promptSource = string(
+                                if (uri.host.equals("connect", ignoreCase = true)) {
+                                    R.string.label_prompt_source_pair_qr
+                                } else {
+                                    R.string.label_prompt_source_deep_link
+                                }
+                            ),
                         )
                     }
                     addLocalLog("入口", "收到${if (uri.host.equals("connect", ignoreCase = true)) "配对二维码" else "Deep link"}任务。", LogKind.Event)
@@ -820,13 +868,14 @@ class AcpViewModel(
         _uiState.update {
             it.copy(
                 isConnected = true,
-                connectionStatus = "已连接",
+                connectionStatus = string(R.string.status_connection_connected),
                 reconnectStatus = reconnectStatusText(
                     enabled = it.autoReconnectEnabled,
                     shouldKeepConnected = shouldStayConnected,
                     isConnected = true,
                     attempt = reconnectAttempt,
                 ),
+                isReconnectScheduled = false,
             )
         }
         persistConnectionState()
@@ -854,8 +903,9 @@ class AcpViewModel(
         _uiState.update {
             it.copy(
                 isConnected = false,
-                connectionStatus = "已断开",
-                initializationStatus = "未初始化",
+                connectionStatus = string(R.string.status_connection_closed),
+                initializationStatus = string(R.string.status_initialization_uninitialized),
+                isInitialized = false,
                 currentTurnId = null,
                 isStreaming = false,
                 pendingApprovals = emptyList(),
@@ -865,6 +915,7 @@ class AcpViewModel(
                     isConnected = false,
                     attempt = reconnectAttempt,
                 ),
+                isReconnectScheduled = false,
             )
         }
         persistConnectionState()
@@ -994,12 +1045,18 @@ class AcpViewModel(
         when (method) {
             "thread/started" -> {
                 params["thread"].jsonObjectOrNull()?.let { thread ->
-                    parseCodexThreadStart(buildJsonObject { put("thread", thread) })?.let { upsertSessionSummary(it) }
+                    parseCodexThreadStart(
+                        result = buildJsonObject { put("thread", thread) },
+                        context = app,
+                    )?.let { upsertSessionSummary(it) }
                 }
             }
 
             "turn/started" -> {
                 val turnId = params["turn"].jsonObjectOrNull()?.get("id").contentOrNull()
+                if (!threadId.isNullOrBlank()) {
+                    markThreadRunning(threadId)
+                }
                 if (!threadId.isNullOrBlank() && threadId == _uiState.value.sessionId && !turnId.isNullOrBlank()) {
                     ensureStreamingAssistantEntry(turnId)
                     _uiState.update {
@@ -1015,6 +1072,9 @@ class AcpViewModel(
             "item/agentMessage/delta" -> {
                 val turnId = params["turnId"].contentOrNull()
                 val delta = params["delta"].contentOrNull().orEmpty()
+                if (!threadId.isNullOrBlank()) {
+                    markThreadRunning(threadId)
+                }
                 if (!threadId.isNullOrBlank() && threadId == _uiState.value.sessionId && !turnId.isNullOrBlank()) {
                     appendAssistantDelta(turnId, delta)
                     _uiState.update {
@@ -1034,6 +1094,7 @@ class AcpViewModel(
                             item = item,
                             turnId = turnId,
                             fallbackItemId = "live-${System.nanoTime()}",
+                            context = app,
                         )
                         if (entry != null && entry.role != TranscriptRole.User) {
                             applyLiveTranscriptEntry(entry)
@@ -1051,7 +1112,7 @@ class AcpViewModel(
                             TranscriptEntry(
                                 id = "diff-${turnId ?: "unknown"}",
                                 role = TranscriptRole.Tool,
-                                title = "代码差异",
+                                title = string(R.string.codex_code_diff),
                                 text = diff,
                                 turnId = turnId,
                             )
@@ -1078,9 +1139,15 @@ class AcpViewModel(
             "error" -> {
                 val errorMessage = params["error"].jsonObjectOrNull()?.get("message").contentOrNull()
                     ?: params["message"].contentOrNull()
-                    ?: "Unknown error"
+                    ?: string(R.string.error_unknown)
                 addLocalLog("Codex", errorMessage, LogKind.Error)
                 if (!threadId.isNullOrBlank()) {
+                    markThreadStopped(
+                        threadId = threadId,
+                        turnId = params["turnId"].contentOrNull(),
+                        stopReason = "error",
+                        markAsCompleted = false,
+                    )
                     notifyThreadFailed(
                         threadId = threadId,
                         errorMessage = errorMessage,
@@ -1090,7 +1157,7 @@ class AcpViewModel(
                     TranscriptEntry(
                         id = "error-${System.nanoTime()}",
                         role = TranscriptRole.System,
-                        title = "错误",
+                        title = string(R.string.codex_error_title),
                         text = errorMessage,
                     )
                 )
@@ -1104,7 +1171,7 @@ class AcpViewModel(
 
         when (method) {
             "item/commandExecution/requestApproval", "item/fileChange/requestApproval" -> {
-                val approval = parseCodexApprovalRequest(payload)
+                val approval = parseCodexApprovalRequest(payload, app)
                 if (approval == null) {
                     codexTransport.sendError(requestId, -32602, "Invalid approval request")
                     return
@@ -1179,7 +1246,8 @@ class AcpViewModel(
                 val versionLabel = version?.let { " $it" } ?: ""
                 _uiState.update {
                     it.copy(
-                        initializationStatus = "已初始化",
+                        initializationStatus = string(R.string.status_initialization_initialized),
+                        isInitialized = true,
                         agentLabel = agentTitle + versionLabel,
                     )
                 }
@@ -1207,7 +1275,8 @@ class AcpViewModel(
                 codexInitializedAckPending = true
                 _uiState.update {
                     it.copy(
-                        initializationStatus = "已初始化",
+                        initializationStatus = string(R.string.status_initialization_initialized),
+                        isInitialized = true,
                         agentLabel = userAgent,
                     )
                 }
@@ -1233,14 +1302,14 @@ class AcpViewModel(
             }
 
             "thread/list" -> {
-                val summaries = parseCodexThreadList(result)
+                val summaries = parseCodexThreadList(result, app)
                     .sortedByDescending { it.updatedAtEpochSeconds ?: 0L }
                 _uiState.update { it.copy(sessionSummaries = summaries) }
                 addLocalLog("Codex", "已同步 ${summaries.size} 个线程。", LogKind.Event)
             }
 
             "thread/start" -> {
-                parseCodexThreadStart(result)?.let { summary ->
+                parseCodexThreadStart(result, app)?.let { summary ->
                     _uiState.update {
                         it.copy(
                             sessionId = summary.id,
@@ -1255,13 +1324,14 @@ class AcpViewModel(
             }
 
             "thread/resume" -> {
-                val resume = parseCodexThreadResume(result) ?: return
+                val resume = parseCodexThreadResume(result, app) ?: return
                 applyCodexResume(resume)
                 addLocalLog("Codex", "已加载线程: ${resume.id}", LogKind.Event)
             }
 
             "turn/start" -> {
                 val turnId = result["turn"].jsonObjectOrNull()?.get("id").contentOrNull()
+                _uiState.value.sessionId?.let(::markThreadRunning)
                 if (!turnId.isNullOrBlank()) {
                     ensureStreamingAssistantEntry(turnId)
                     _uiState.update {
@@ -1441,7 +1511,7 @@ class AcpViewModel(
                 put("limit", 50)
             },
         )
-        val summaries = parseCodexThreadList(result)
+        val summaries = parseCodexThreadList(result, app)
             .sortedByDescending { it.updatedAtEpochSeconds ?: 0L }
             .distinctBy { it.id }
 
@@ -1454,7 +1524,7 @@ class AcpViewModel(
             method = "thread/start",
             params = buildCodexThreadStartParams(),
         )
-        val summary = parseCodexThreadStart(result)
+        val summary = parseCodexThreadStart(result, app)
             ?: throw IllegalStateException("thread/start 没有返回 thread.id")
         _uiState.update {
             it.copy(
@@ -1476,7 +1546,7 @@ class AcpViewModel(
             method = "thread/resume",
             params = buildCodexThreadResumeParams(threadId),
         )
-        val resume = parseCodexThreadResume(result)
+        val resume = parseCodexThreadResume(result, app)
             ?: throw IllegalStateException("thread/resume 没有返回可用线程内容")
         applyCodexResume(resume)
     }
@@ -1487,6 +1557,7 @@ class AcpViewModel(
             params = buildCodexTurnStartParams(threadId, promptText),
         )
         val turnId = result["turn"].jsonObjectOrNull()?.get("id").contentOrNull()
+        markThreadRunning(threadId)
         if (!turnId.isNullOrBlank()) {
             ensureStreamingAssistantEntry(turnId)
             _uiState.update {
@@ -1502,9 +1573,10 @@ class AcpViewModel(
         val summary = _uiState.value.sessionSummaries.firstOrNull { it.id == resume.id }
             ?: RemoteSessionSummary(
                 id = resume.id,
-                title = resume.preview ?: "未命名线程",
+                title = resume.preview ?: string(R.string.thread_title_unnamed),
                 cwd = resume.cwd,
                 updatedAtEpochSeconds = null,
+                isRunning = !resume.activeTurnId.isNullOrBlank(),
             )
 
         val entries = resume.entries.toMutableList()
@@ -1512,7 +1584,7 @@ class AcpViewModel(
             entries += TranscriptEntry(
                 id = streamingEntryId(resume.activeTurnId),
                 role = TranscriptRole.Assistant,
-                title = "助手",
+                title = string(R.string.codex_role_assistant),
                 text = "",
                 turnId = resume.activeTurnId,
                 isStreaming = true,
@@ -1522,7 +1594,9 @@ class AcpViewModel(
         _uiState.update {
             it.copy(
                 sessionId = resume.id,
-                sessionSummaries = listOf(summary) + it.sessionSummaries.filter { item -> item.id != resume.id },
+                sessionSummaries = listOf(
+                    summary.copy(isRunning = !resume.activeTurnId.isNullOrBlank())
+                ) + it.sessionSummaries.filter { item -> item.id != resume.id },
                 workingDirectory = resume.cwd ?: it.workingDirectory,
                 transcriptEntries = entries,
                 currentTurnId = resume.activeTurnId,
@@ -1538,7 +1612,7 @@ class AcpViewModel(
         val entry = TranscriptEntry(
             id = "local-user-${System.nanoTime()}",
             role = TranscriptRole.User,
-            title = "用户",
+            title = string(R.string.codex_role_user),
             text = promptText,
         )
         _uiState.update {
@@ -1571,7 +1645,7 @@ class AcpViewModel(
             TranscriptEntry(
                 id = entryId,
                 role = TranscriptRole.Assistant,
-                title = "助手",
+                title = string(R.string.codex_role_assistant),
                 text = "",
                 turnId = turnId,
                 isStreaming = true,
@@ -1599,7 +1673,7 @@ class AcpViewModel(
                 val created = TranscriptEntry(
                     id = entryId,
                     role = TranscriptRole.Assistant,
-                    title = "助手",
+                    title = string(R.string.codex_role_assistant),
                     text = delta,
                     turnId = turnId,
                     isStreaming = true,
@@ -1660,6 +1734,16 @@ class AcpViewModel(
         turnId: String?,
         threadId: String?,
     ) {
+        if (!threadId.isNullOrBlank()) {
+            markThreadStopped(
+                threadId = threadId,
+                turnId = turnId,
+                stopReason = "completed",
+                markAsCompleted = true,
+            )
+            return
+        }
+
         _uiState.update { state ->
             val updated = state.transcriptEntries.map { entry ->
                 if (!turnId.isNullOrBlank() && entry.turnId == turnId) {
@@ -1680,10 +1764,74 @@ class AcpViewModel(
         }
     }
 
+    private fun markThreadRunning(threadId: String) {
+        val nowEpochSeconds = System.currentTimeMillis() / 1000
+        _uiState.update { state ->
+            val summary = state.sessionSummaries.firstOrNull { it.id == threadId } ?: return@update state
+            val updatedSummary = summary.copy(
+                isRunning = true,
+                updatedAtEpochSeconds = nowEpochSeconds,
+            )
+            state.copy(
+                sessionSummaries = listOf(updatedSummary) + state.sessionSummaries.filter { it.id != threadId },
+                lastCompletedThreadId = if (state.lastCompletedThreadId == threadId) null else state.lastCompletedThreadId,
+            )
+        }
+    }
+
+    private fun markThreadStopped(
+        threadId: String,
+        turnId: String?,
+        stopReason: String,
+        markAsCompleted: Boolean,
+    ) {
+        val nowEpochSeconds = System.currentTimeMillis() / 1000
+        _uiState.update { state ->
+            val affectsCurrentThread = state.sessionId == threadId
+            val affectsCurrentTurn = !turnId.isNullOrBlank() && state.currentTurnId == turnId
+            val shouldStopCurrentStream = affectsCurrentThread || affectsCurrentTurn
+
+            val updatedEntries = if (shouldStopCurrentStream) {
+                state.transcriptEntries.map { entry ->
+                    if (!turnId.isNullOrBlank() && entry.turnId == turnId) {
+                        entry.copy(isStreaming = false)
+                    } else if (turnId.isNullOrBlank() && entry.isStreaming) {
+                        entry.copy(isStreaming = false)
+                    } else {
+                        entry
+                    }
+                }
+            } else {
+                state.transcriptEntries
+            }
+
+            val updatedSummaries = state.sessionSummaries.map { summary ->
+                if (summary.id == threadId) {
+                    summary.copy(
+                        isRunning = false,
+                        updatedAtEpochSeconds = nowEpochSeconds,
+                    )
+                } else {
+                    summary
+                }
+            }.sortedByDescending { it.updatedAtEpochSeconds ?: 0L }
+
+            state.copy(
+                sessionSummaries = updatedSummaries,
+                transcriptEntries = updatedEntries,
+                currentTurnId = if (shouldStopCurrentStream) null else state.currentTurnId,
+                isStreaming = if (shouldStopCurrentStream) false else state.isStreaming,
+                lastStopReason = if (shouldStopCurrentStream) stopReason else state.lastStopReason,
+                lastCompletedThreadId = if (markAsCompleted) threadId else state.lastCompletedThreadId,
+            )
+        }
+    }
+
     private fun notifyThreadCompleted(threadId: String) {
         val summary = _uiState.value.sessionSummaries.firstOrNull { it.id == threadId }
         val title = notificationThreadTitle(summary, threadId)
-        val description = summary?.cwd?.takeIf { it.isNotBlank() } ?: "任务已完成，可以回到线程里继续查看。"
+        val description = summary?.cwd?.takeIf { it.isNotBlank() }
+            ?: string(R.string.notification_thread_completed_default_description)
         AgmenteNotifications.notifyThreadCompleted(
             threadId = threadId,
             threadTitle = title,
@@ -1716,7 +1864,7 @@ class AcpViewModel(
             ?.takeIf { it.isNotBlank() }
         return projectName
             ?: summary?.title?.trim()?.takeIf { it.isNotBlank() }
-            ?: "线程 ${threadId.take(8)}"
+            ?: string(R.string.label_thread_short, threadId.take(8))
     }
 
     private fun upsertSessionSummary(summary: RemoteSessionSummary) {
@@ -1771,7 +1919,7 @@ class AcpViewModel(
         if (!state.isConnected) {
             throw BridgeHttpException(503, "ACP 尚未连接，请先在 App 内点击连接。")
         }
-        if (state.initializationStatus != "已初始化") {
+        if (!state.isInitialized) {
             throw BridgeHttpException(503, "ACP 尚未初始化，请先在 App 内点击 Initialize。")
         }
         if (request.messages.isEmpty()) {
@@ -2054,7 +2202,7 @@ class AcpViewModel(
                 val delaySeconds = reconnectDelaySeconds(reconnectAttempt)
                 _uiState.update {
                     it.copy(
-                        connectionStatus = "等待重连…",
+                        connectionStatus = string(R.string.status_connection_waiting_reconnect),
                         reconnectStatus = reconnectStatusText(
                             enabled = it.autoReconnectEnabled,
                             shouldKeepConnected = shouldStayConnected,
@@ -2062,6 +2210,7 @@ class AcpViewModel(
                             attempt = reconnectAttempt,
                             waitingSeconds = delaySeconds,
                         ),
+                        isReconnectScheduled = true,
                     )
                 }
                 persistConnectionState()
@@ -2103,24 +2252,33 @@ class AcpViewModel(
         waitingSeconds: Int? = null,
     ): String {
         if (!enabled) {
-            return "已关闭"
+            return string(R.string.status_reconnect_disabled)
         }
         if (isConnected) {
-            return "已开启，当前在线"
+            return string(R.string.status_reconnect_online)
         }
         if (isConnecting) {
-            return if (shouldKeepConnected) "正在建立连接" else "本次连接中"
+            return if (shouldKeepConnected) {
+                string(R.string.status_reconnect_connecting_keep)
+            } else {
+                string(R.string.status_reconnect_connecting_once)
+            }
         }
         if (waitingSeconds != null && shouldKeepConnected) {
-            return "${waitingSeconds} 秒后自动重连（第 $attempt 次）"
+            return string(R.string.status_reconnect_waiting_seconds, waitingSeconds, attempt)
         }
-        return if (shouldKeepConnected) "已开启，等待恢复连接" else "已开启，等待手动连接"
+        return if (shouldKeepConnected) {
+            string(R.string.status_reconnect_waiting_restore)
+        } else {
+            string(R.string.status_reconnect_waiting_manual)
+        }
     }
 
     private fun restorePersistedConnectionState() {
         val savedMode = preferences.getString(KEY_SERVER_MODE, null)
             ?.let { runCatching { ServerMode.valueOf(it) }.getOrNull() }
             ?: ServerMode.CodexAppServer
+        val savedAppLanguage = AppLanguageManager.load(app)
         val savedPermissionPreset = preferences.getString(KEY_PERMISSION_PRESET, null)
             ?.let { runCatching { CodexPermissionPreset.valueOf(it) }.getOrNull() }
             ?: CodexPermissionPreset.Safe
@@ -2131,6 +2289,7 @@ class AcpViewModel(
 
         _uiState.value = _uiState.value.copy(
             serverMode = savedMode,
+            appLanguage = savedAppLanguage,
             endpoint = preferences.getString(KEY_ENDPOINT, "").orEmpty(),
             bearerToken = preferences.getString(KEY_BEARER_TOKEN, "").orEmpty(),
             cfAccessClientId = preferences.getString(KEY_CF_ACCESS_CLIENT_ID, "").orEmpty(),
@@ -2144,6 +2303,7 @@ class AcpViewModel(
                 isConnected = false,
                 attempt = reconnectAttempt,
             ),
+            isReconnectScheduled = false,
         )
     }
 

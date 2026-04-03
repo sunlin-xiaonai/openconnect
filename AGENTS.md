@@ -7,6 +7,7 @@
 
 ## Ownership Boundaries
 - `app/src/main/java/com/agmente/android/` contains app state, screens, and Android entrypoints.
+- `app/src/main/java/com/agmente/android/AppLanguageManager.kt` and `AgmenteApplication.kt` own app-level locale persistence and startup locale restoration.
 - `app/src/main/java/com/agmente/android/acp/` owns JSON-RPC transport and local terminal execution.
 - `docs/wechat-android-acp.md` documents the WeChat entry architecture and platform limits.
 
@@ -14,6 +15,7 @@
 - Add new client capabilities in `AcpViewModel.buildInitializeParams`.
 - Add inbound ACP client methods in `AcpTransport.handleClientRequest`.
 - Extend local execution in `LocalTerminalManager`; keep shell/process policy isolated there.
+- Add new supported in-app languages through `AppLanguage`, `strings.xml`, and `values-*/strings.xml`.
 
 ## Constraints
 - Current MVP supports `initialize`, `session/new`, `session/prompt`, and `terminal/*`.
@@ -21,6 +23,7 @@
 - Android shell execution is sandboxed to locations the app process can access.
 - WeChat is an entry surface, not the in-process ACP runtime host.
 - Deep-link entry now includes both `agmente://task?...` and pairing-style `agmente://connect?...`.
+- In-app language switching is supported for simplified Chinese and English, with a "follow system" option.
 
 ## Build And Test
 - Use the Gradle wrapper inside `AgmenteAndroid/`.

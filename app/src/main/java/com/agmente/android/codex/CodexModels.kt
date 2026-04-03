@@ -1,5 +1,8 @@
 package com.agmente.android.codex
 
+import android.content.Context
+import androidx.annotation.StringRes
+import com.agmente.android.R
 import com.agmente.android.acp.contentOrNull
 import com.agmente.android.acp.jsonArrayOrNull
 import com.agmente.android.acp.jsonObjectOrNull
@@ -15,15 +18,15 @@ enum class ServerMode {
 }
 
 enum class CodexPermissionPreset(
-    val displayName: String,
+    @StringRes val displayNameResId: Int,
     val approvalPolicy: String,
 ) {
     Safe(
-        displayName = "默认安全",
+        displayNameResId = R.string.permission_preset_safe,
         approvalPolicy = "on-request",
     ),
     FullAccess(
-        displayName = "完全访问",
+        displayNameResId = R.string.permission_preset_full_access,
         approvalPolicy = "never",
     ),
     ;
@@ -40,11 +43,15 @@ enum class CodexPermissionPreset(
         }
 }
 
+fun CodexPermissionPreset.displayName(context: Context): String =
+    context.getString(displayNameResId)
+
 data class RemoteSessionSummary(
     val id: String,
     val title: String,
     val cwd: String?,
     val updatedAtEpochSeconds: Long?,
+    val isRunning: Boolean = false,
 )
 
 enum class TranscriptRole {
@@ -84,40 +91,55 @@ data class CodexThreadResume(
     val entries: List<TranscriptEntry>,
 )
 
-fun parseCodexThreadList(result: JsonObject): List<RemoteSessionSummary> {
+fun parseCodexThreadList(
+    result: JsonObject,
+    context: Context,
+): List<RemoteSessionSummary> {
     val data = result["data"].jsonArrayOrNull().orEmpty()
     return data.mapNotNull { value ->
         val thread = value.jsonObjectOrNull() ?: return@mapNotNull null
         val id = thread["id"].contentOrNull()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val activeTurnId = extractActiveTurnId(thread)
         RemoteSessionSummary(
             id = id,
-            title = thread["preview"].contentOrNull().orEmpty().ifBlank { "未命名线程" },
+            title = thread["preview"].contentOrNull().orEmpty()
+                .ifBlank { context.getString(R.string.thread_title_unnamed) },
             cwd = firstNonEmpty(
                 thread["cwd"].contentOrNull(),
                 thread["workingDirectory"].contentOrNull(),
             ),
             updatedAtEpochSeconds = parseUnixSeconds(thread["updatedAt"])
                 ?: parseUnixSeconds(thread["createdAt"]),
+            isRunning = !activeTurnId.isNullOrBlank() || isTurnInProgressStatus(thread["status"].contentOrNull()),
         )
     }
 }
 
-fun parseCodexThreadStart(result: JsonObject): RemoteSessionSummary? {
+fun parseCodexThreadStart(
+    result: JsonObject,
+    context: Context,
+): RemoteSessionSummary? {
     val thread = result["thread"].jsonObjectOrNull() ?: return null
     val id = thread["id"].contentOrNull()?.takeIf { it.isNotBlank() } ?: return null
+    val activeTurnId = extractActiveTurnId(thread)
     return RemoteSessionSummary(
         id = id,
-        title = thread["preview"].contentOrNull().orEmpty().ifBlank { "未命名线程" },
+        title = thread["preview"].contentOrNull().orEmpty()
+            .ifBlank { context.getString(R.string.thread_title_unnamed) },
         cwd = firstNonEmpty(
             thread["cwd"].contentOrNull(),
             thread["workingDirectory"].contentOrNull(),
         ),
         updatedAtEpochSeconds = parseUnixSeconds(thread["updatedAt"])
             ?: parseUnixSeconds(thread["createdAt"]),
+        isRunning = !activeTurnId.isNullOrBlank() || isTurnInProgressStatus(thread["status"].contentOrNull()),
     )
 }
 
-fun parseCodexThreadResume(result: JsonObject): CodexThreadResume? {
+fun parseCodexThreadResume(
+    result: JsonObject,
+    context: Context,
+): CodexThreadResume? {
     val thread = result["thread"].jsonObjectOrNull() ?: return null
     val id = thread["id"].contentOrNull()?.takeIf { it.isNotBlank() } ?: return null
     val cwd = firstNonEmpty(
@@ -142,6 +164,7 @@ fun parseCodexThreadResume(result: JsonObject): CodexThreadResume? {
                 item = item,
                 turnId = turnId,
                 fallbackItemId = "$turnId-$itemIndex",
+                context = context,
             )?.let(entries::add)
         }
     }
@@ -159,6 +182,7 @@ fun parseCodexTranscriptEntry(
     item: JsonObject,
     turnId: String?,
     fallbackItemId: String,
+    context: Context,
 ): TranscriptEntry? {
     val type = item["type"].contentOrNull() ?: return null
     val itemId = item["id"].contentOrNull() ?: fallbackItemId
@@ -168,10 +192,11 @@ fun parseCodexTranscriptEntry(
         "usermessage" -> buildTextEntry(
             id = "item-$itemId",
             role = TranscriptRole.User,
-            title = "用户",
+            title = context.getString(R.string.codex_role_user),
             text = extractCodexTextContent(item),
             turnId = turnId,
             itemId = itemId,
+            context = context,
         )
 
         "message" -> {
@@ -185,38 +210,48 @@ fun parseCodexTranscriptEntry(
             buildTextEntry(
                 id = "item-$itemId",
                 role = entryRole,
-                title = if (entryRole == TranscriptRole.User) "用户" else "助手",
+                title = context.getString(
+                    if (entryRole == TranscriptRole.User) {
+                        R.string.codex_role_user
+                    } else {
+                        R.string.codex_role_assistant
+                    }
+                ),
                 text = extractCodexTextContent(item),
                 turnId = turnId,
                 itemId = itemId,
+                context = context,
             )
         }
 
         "agentmessage", "assistantmessage" -> buildTextEntry(
             id = "item-$itemId",
             role = TranscriptRole.Assistant,
-            title = "助手",
+            title = context.getString(R.string.codex_role_assistant),
             text = extractCodexTextContent(item),
             turnId = turnId,
             itemId = itemId,
+            context = context,
         )
 
         "plan" -> buildTextEntry(
             id = "item-$itemId",
             role = TranscriptRole.System,
-            title = "计划",
+            title = context.getString(R.string.codex_role_plan),
             text = extractCodexTextContent(item),
             turnId = turnId,
             itemId = itemId,
+            context = context,
         )
 
         "reasoning", "thought", "analysis" -> buildTextEntry(
             id = "item-$itemId",
             role = TranscriptRole.System,
-            title = "思考",
+            title = context.getString(R.string.codex_role_reasoning),
             text = extractCodexReasoningText(item),
             turnId = turnId,
             itemId = itemId,
+            context = context,
         )
 
         "commandexecution", "command", "exec", "shell" -> {
@@ -228,10 +263,11 @@ fun parseCodexTranscriptEntry(
             buildTextEntry(
                 id = "item-$itemId",
                 role = TranscriptRole.Tool,
-                title = commandExecutionDisplayTitle(command),
+                title = commandExecutionDisplayTitle(command, context),
                 text = output ?: command.orEmpty(),
                 turnId = turnId,
                 itemId = itemId,
+                context = context,
             )
         }
 
@@ -241,14 +277,15 @@ fun parseCodexTranscriptEntry(
                 .filterNotNull()
                 .filter { it.isNotBlank() }
                 .joinToString("\n")
-                .ifBlank { "文件已修改" }
+                .ifBlank { context.getString(R.string.codex_file_modified) }
             buildTextEntry(
                 id = "item-$itemId",
                 role = TranscriptRole.Tool,
-                title = details.path ?: "文件变更",
+                title = details.path ?: context.getString(R.string.codex_file_change),
                 text = body,
                 turnId = turnId,
                 itemId = itemId,
+                context = context,
             )
         }
 
@@ -260,7 +297,7 @@ fun parseCodexTranscriptEntry(
                 item["command"].contentOrNull(),
                 item["path"].contentOrNull(),
                 item["tool"].jsonObjectOrNull()?.get("name").contentOrNull(),
-            ) ?: "工具调用"
+            ) ?: context.getString(R.string.codex_tool_call)
             val kind = firstNonEmpty(
                 item["kind"].contentOrNull(),
                 item["toolType"].contentOrNull(),
@@ -271,7 +308,7 @@ fun parseCodexTranscriptEntry(
                 .filterNotNull()
                 .filter { it.isNotBlank() }
                 .joinToString("\n")
-                .ifBlank { "工具调用完成" }
+                .ifBlank { context.getString(R.string.codex_tool_call_completed) }
             buildTextEntry(
                 id = "item-$itemId",
                 role = TranscriptRole.Tool,
@@ -279,6 +316,7 @@ fun parseCodexTranscriptEntry(
                 text = body,
                 turnId = turnId,
                 itemId = itemId,
+                context = context,
             )
         }
 
@@ -286,28 +324,31 @@ fun parseCodexTranscriptEntry(
             normalizedType.contains("user") -> buildTextEntry(
                 id = "item-$itemId",
                 role = TranscriptRole.User,
-                title = "用户",
+                title = context.getString(R.string.codex_role_user),
                 text = extractCodexTextContent(item),
                 turnId = turnId,
                 itemId = itemId,
+                context = context,
             )
 
             normalizedType.contains("assistant") || normalizedType.contains("agent") -> buildTextEntry(
                 id = "item-$itemId",
                 role = TranscriptRole.Assistant,
-                title = "助手",
+                title = context.getString(R.string.codex_role_assistant),
                 text = extractCodexTextContent(item),
                 turnId = turnId,
                 itemId = itemId,
+                context = context,
             )
 
             normalizedType.contains("plan") -> buildTextEntry(
                 id = "item-$itemId",
                 role = TranscriptRole.System,
-                title = "计划",
+                title = context.getString(R.string.codex_role_plan),
                 text = extractCodexTextContent(item),
                 turnId = turnId,
                 itemId = itemId,
+                context = context,
             )
 
             normalizedType.contains("reason")
@@ -315,10 +356,11 @@ fun parseCodexTranscriptEntry(
                 || normalizedType.contains("analysis") -> buildTextEntry(
                 id = "item-$itemId",
                 role = TranscriptRole.System,
-                title = "思考",
+                title = context.getString(R.string.codex_role_reasoning),
                 text = extractCodexReasoningText(item),
                 turnId = turnId,
                 itemId = itemId,
+                context = context,
             )
 
             normalizedType.contains("command")
@@ -331,10 +373,11 @@ fun parseCodexTranscriptEntry(
                 buildTextEntry(
                     id = "item-$itemId",
                     role = TranscriptRole.Tool,
-                    title = commandExecutionDisplayTitle(command),
+                    title = commandExecutionDisplayTitle(command, context),
                     text = extractCodexToolOutput(item) ?: command.orEmpty(),
                     turnId = turnId,
                     itemId = itemId,
+                    context = context,
                 )
             }
 
@@ -346,14 +389,15 @@ fun parseCodexTranscriptEntry(
                     .filterNotNull()
                     .filter { it.isNotBlank() }
                     .joinToString("\n")
-                    .ifBlank { "文件已修改" }
+                    .ifBlank { context.getString(R.string.codex_file_modified) }
                 buildTextEntry(
                     id = "item-$itemId",
                     role = TranscriptRole.Tool,
-                    title = details.path ?: "文件变更",
+                    title = details.path ?: context.getString(R.string.codex_file_change),
                     text = body,
                     turnId = turnId,
                     itemId = itemId,
+                    context = context,
                 )
             }
 
@@ -364,7 +408,7 @@ fun parseCodexTranscriptEntry(
                     item["toolName"].contentOrNull(),
                     item["command"].contentOrNull(),
                     type,
-                ) ?: "工具调用"
+                ) ?: context.getString(R.string.codex_tool_call)
                 buildTextEntry(
                     id = "item-$itemId",
                     role = TranscriptRole.Tool,
@@ -372,6 +416,7 @@ fun parseCodexTranscriptEntry(
                     text = extractCodexToolOutput(item) ?: title,
                     turnId = turnId,
                     itemId = itemId,
+                    context = context,
                 )
             }
 
@@ -380,7 +425,10 @@ fun parseCodexTranscriptEntry(
     }
 }
 
-fun parseCodexApprovalRequest(request: JsonObject): CodexApprovalRequest? {
+fun parseCodexApprovalRequest(
+    request: JsonObject,
+    context: Context,
+): CodexApprovalRequest? {
     val requestId = request["id"] ?: return null
     val method = request["method"].contentOrNull() ?: return null
     val params = request["params"].jsonObjectOrNull() ?: JsonObject(emptyMap())
@@ -392,15 +440,16 @@ fun parseCodexApprovalRequest(request: JsonObject): CodexApprovalRequest? {
     )
 
     val title = when {
-        method.contains("commandExecution", ignoreCase = true) -> commandExecutionDisplayTitle(command)
+        method.contains("commandExecution", ignoreCase = true) ->
+            commandExecutionDisplayTitle(command, context)
         method.contains("fileChange", ignoreCase = true) -> {
             firstNonEmpty(
                 params["path"].contentOrNull(),
                 params["targetPath"].contentOrNull(),
-            ) ?: "文件变更"
+            ) ?: context.getString(R.string.codex_file_change)
         }
 
-        else -> "需要审批"
+        else -> context.getString(R.string.codex_approval_required)
     }
 
     return CodexApprovalRequest(
@@ -414,8 +463,11 @@ fun parseCodexApprovalRequest(request: JsonObject): CodexApprovalRequest? {
     )
 }
 
-fun commandExecutionDisplayTitle(command: String?): String {
-    return command?.trim().orEmpty().ifBlank { "命令执行" }
+fun commandExecutionDisplayTitle(
+    command: String?,
+    context: Context,
+): String {
+    return command?.trim().orEmpty().ifBlank { context.getString(R.string.codex_command_execution) }
 }
 
 private data class CodexFileChangeDetails(
@@ -431,6 +483,7 @@ private fun buildTextEntry(
     text: String,
     turnId: String?,
     itemId: String?,
+    context: Context,
 ): TranscriptEntry? {
     val normalized = text.trim()
     if (normalized.isBlank()) {
@@ -438,7 +491,10 @@ private fun buildTextEntry(
     }
     val displayText = if (normalized.length > MAX_TRANSCRIPT_TEXT_LENGTH) {
         normalized.take(MAX_TRANSCRIPT_TEXT_LENGTH) +
-            "\n...[已截断 ${normalized.length - MAX_TRANSCRIPT_TEXT_LENGTH} 个字符]"
+            context.getString(
+                R.string.codex_text_truncated,
+                normalized.length - MAX_TRANSCRIPT_TEXT_LENGTH,
+            )
     } else {
         normalized
     }
@@ -629,6 +685,22 @@ private fun parseUnixSeconds(element: JsonElement?): Long? {
         raw >= 1e11 -> (raw / 1_000.0).toLong()
         else -> raw.toLong()
     }
+}
+
+private fun extractActiveTurnId(thread: JsonObject): String? {
+    firstNonEmpty(
+        thread["activeTurnId"].contentOrNull(),
+        thread["currentTurnId"].contentOrNull(),
+        thread["inProgressTurnId"].contentOrNull(),
+    )?.let { return it }
+
+    thread["turns"].jsonArrayOrNull().orEmpty().forEachIndexed { turnIndex, turnValue ->
+        val turn = turnValue.jsonObjectOrNull() ?: return@forEachIndexed
+        if (isTurnInProgressStatus(turn["status"].contentOrNull())) {
+            return turn["id"].contentOrNull() ?: "turn-$turnIndex"
+        }
+    }
+    return null
 }
 
 private fun isTurnInProgressStatus(status: String?): Boolean {

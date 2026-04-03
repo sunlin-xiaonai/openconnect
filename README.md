@@ -26,7 +26,7 @@ App 支持：
 典型流程：
 
 1. 在电脑上启动 `Codex app-server`（WebSocket）。
-2. 使用仓库脚本生成 `agmente://connect?...` 配对二维码（可选：同时启动 Cloudflare Tunnel）。
+2. 使用仓库脚本拉起服务并生成 `agmente://connect?...` 配对链接（可选：同时启动 Cloudflare Tunnel）。
 3. 手机打开 App，点击 **扫码连接**，扫描二维码后自动填入参数并连接。
 4. 进入线程后直接发任务，在手机上查看执行过程与变更。
 
@@ -50,20 +50,86 @@ App 支持：
 
 常用脚本（示例参数请替换成你的实际路径/地址）：
 
+依赖说明：
+
+- 需要本机已安装 `codex`
+- Quick Tunnel / 命名 Tunnel 需要已安装 `cloudflared`
+- 脚本会用 `tmux` 托管 `codex app-server` / `cloudflared`
+- 如果安装了 `qrencode`，脚本会额外在终端打印二维码
+
+建议第一次先执行环境检查：
+
 ```bash
-python3 scripts/agmente_remote_codex.py cloudflare-up \
-  --cwd "/path/to/your/project" \
-  --create-session
+bash scripts/agmente_pair_up.sh doctor
 ```
 
-如果你已经有公网 `wss://` 端点，也可以直接生成配对二维码：
+如果你只是想先快速跑通，使用默认 Quick Tunnel：
 
 ```bash
-python3 scripts/agmente_pair_qr.py \
-  --mode codex \
+bash scripts/agmente_pair_up.sh up \
+  --quick-tunnel \
+  --cwd "/path/to/your/project"
+```
+
+如果你准备绑定自己的固定域名，先检查命名 Tunnel 所需项：
+
+```bash
+bash scripts/agmente_pair_up.sh doctor \
+  --named-tunnel agmente-codex \
+  --hostname codex.example.com
+```
+
+然后再启动：
+
+```bash
+bash scripts/agmente_pair_up.sh up \
+  --named-tunnel agmente-codex \
+  --hostname codex.example.com \
+  --cwd "/path/to/your/project"
+```
+
+如果你已经有公网 `wss://` 端点，也可以直接生成配对链接：
+
+```bash
+bash scripts/agmente_pair_up.sh up \
   --endpoint "wss://agent.example.com" \
   --cwd "/path/to/your/project"
 ```
+
+查看状态：
+
+```bash
+bash scripts/agmente_pair_up.sh status
+```
+
+停止脚本拉起的本地 `codex app-server` / `cloudflared`：
+
+```bash
+bash scripts/agmente_pair_up.sh stop
+```
+
+如果 Quick Tunnel 已生成但你当前网络的本地 DNS 解析很慢，脚本会自动回退到公共 DNS 做就绪检查；但如果手机和电脑共用同一个 Wi-Fi DNS，手机端仍可能连不上。这种情况下更建议使用 `--named-tunnel` 或现成的 `--endpoint wss://...`。
+
+如果你是仓库维护者并且额外保留了自己的固定域名封装脚本，请不要把它当作开源用户的默认入口。开源用户应该使用 `agmente_pair_up.sh` 的 `doctor` / `up` 流程，并填写自己的 Tunnel 名称与域名。
+
+如果你要准备一个可上传到 GitHub Release 的 APK 包，可以执行：
+
+```bash
+bash scripts/agmente_release_bundle.sh
+```
+
+如果你想在打包后顺手安装到当前连接的手机：
+
+```bash
+bash scripts/agmente_release_bundle.sh --install
+```
+
+产物会输出到 `dist/`，包含：
+
+- APK
+- `SHA256SUMS.txt`
+- `QUICKSTART.zh-CN.md`
+- `RELEASE_NOTES.md`（如果当前版本已提供）
 
 ## 构建与安装（开发者）
 
@@ -98,4 +164,3 @@ sdk.dir=/path/to/Android/sdk
 ## 备注与边界
 
 - 当前 README 仅描述 **Codex 远程控制** 路线：手机作为控制台，电脑作为执行端。
-

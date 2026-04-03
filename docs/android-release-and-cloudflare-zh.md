@@ -39,6 +39,30 @@
 - “电脑端安装/启动说明”
 - “安全声明”（下文有可复制的模板）
 
+如果你只是想先快速产出一个可下载安装的 APK 包，可以在仓库根目录执行：
+
+```bash
+bash scripts/agmente_release_bundle.sh
+```
+
+脚本会自动：
+
+- 构建 APK
+- 输出到 `dist/`
+- 生成 `SHA256SUMS.txt`
+- 复制一份中文快速上手文档
+
+如果你还想顺手安装到当前已连接的手机：
+
+```bash
+bash scripts/agmente_release_bundle.sh --install
+```
+
+说明：
+
+- 当前仓库默认产出的是可安装的 debug APK，适合 GitHub Release 分发测试
+- 如果你后续要正式长期分发，建议再补自己的 release keystore
+
 ---
 
 ## 最短可跑通流程（新用户建议先走 Quick Tunnel）
@@ -71,22 +95,63 @@ cloudflared tunnel --url http://localhost:9000
 
 你会得到一个临时域名（每次重启会变化）。注意：手机端通常需要 **`wss://`** 形式的 WebSocket 地址。
 
-### 电脑端：生成配对二维码
+### 电脑端：先做检查，再一键拉起并生成配对链接
 
 在仓库根目录执行（示例）：
 
+先做环境检查：
+
 ```bash
-python3 scripts/agmente_pair_qr.py \
-  --mode codex \
-  --endpoint "wss://<你的临时域名>" \
-  --cwd "/path/to/your/project" \
-  --create-session
+bash scripts/agmente_pair_up.sh doctor
 ```
 
-- `--endpoint`：填你上一步拿到的公网地址（把域名替换成你的）
-- `--cwd`：填你想让 Codex 工作的目录（例如你的项目目录）
+如果你只是想快速跑通，默认 Quick Tunnel 即可：
 
-脚本会打开/输出一个二维码页面（或二维码图片/链接）。**把二维码留在屏幕上**，待会手机要扫它。
+```bash
+bash scripts/agmente_pair_up.sh up \
+  --quick-tunnel \
+  --cwd "/path/to/your/project"
+```
+
+- 依赖：本机已安装 `codex`、`cloudflared`、`tmux`
+- 脚本会自动检查/拉起本地 `codex app-server`
+- 脚本会自动检查/拉起 `cloudflared`
+- 脚本会输出最终可扫码的 `agmente://connect?...` 链接
+- 如果你本机装了 `qrencode`，它还会直接在终端打印二维码
+- 如果当前局域网 DNS 对新生成的 `trycloudflare.com` 解析慢，脚本会自动用公共 DNS 做就绪检查；但如果手机和电脑共用同一 Wi-Fi DNS，手机端仍可能连不上，正式使用更建议命名 Tunnel 或固定 `wss://` 域名
+
+如果你要绑定自己的固定域名，先执行：
+
+```bash
+bash scripts/agmente_pair_up.sh doctor \
+  --named-tunnel agmente-codex \
+  --hostname codex.example.com
+```
+
+脚本会告诉你：
+
+- 是否已安装 `cloudflared`
+- 是否缺少 `~/.cloudflared/config.yml`
+- 是否还没做 `cloudflared tunnel login`
+- 命名 Tunnel 需要执行的 `create` / `route dns` 命令
+- ingress 里应该如何把 `codex.example.com` 指到 `127.0.0.1:9000`
+
+如果你更想手动指定固定公网地址，也可以：
+
+```bash
+bash scripts/agmente_pair_up.sh up \
+  --endpoint "wss://codex.example.com" \
+  --cwd "/path/to/your/project"
+```
+
+如果是命名 Tunnel：
+
+```bash
+bash scripts/agmente_pair_up.sh up \
+  --named-tunnel agmente-codex \
+  --hostname codex.example.com \
+  --cwd "/path/to/your/project"
+```
 
 ### 手机端：扫码连接
 
@@ -161,6 +226,10 @@ ingress:
     service: http://localhost:9000
   - service: http_status:404
 ```
+
+仓库里也提供了一个可复制修改的模板：
+
+- `docs/examples/cloudflared-config.example.yml`
 
 你需要改的只有三处：
 

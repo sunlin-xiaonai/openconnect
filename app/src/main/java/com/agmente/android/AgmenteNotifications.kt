@@ -20,8 +20,6 @@ import androidx.core.content.ContextCompat
 
 object AgmenteNotifications {
     private const val CHANNEL_ID = "agmente_thread_updates_v4"
-    private const val CHANNEL_NAME = "任务完成提醒"
-    private const val CHANNEL_DESCRIPTION = "线程执行完成、失败和等待处理时的高优先级提醒"
     private const val FALLBACK_ALERT_DEBOUNCE_MS = 1800L
     private val VIBRATION_PATTERN = longArrayOf(0, 180, 120, 260)
 
@@ -50,7 +48,7 @@ object AgmenteNotifications {
     ) {
         postNotification(
             notificationId = threadId.hashCode(),
-            title = "任务已完成",
+            title = contextString(R.string.notification_title_completed),
             threadId = threadId,
             threadTitle = threadTitle,
             content = description,
@@ -65,7 +63,7 @@ object AgmenteNotifications {
     ) {
         postNotification(
             notificationId = threadId.hashCode(),
-            title = "任务执行出错",
+            title = contextString(R.string.notification_title_failed),
             threadId = threadId,
             threadTitle = threadTitle,
             content = description,
@@ -100,16 +98,16 @@ object AgmenteNotifications {
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle(notificationTitle)
             .setContentText(content)
-            .setSubText("Agmente 任务提醒")
+            .setSubText(context.getString(R.string.notification_subtext))
             .setStyle(
                 NotificationCompat.BigTextStyle()
                     .setBigContentTitle(notificationTitle)
                     .bigText(content)
-                    .setSummaryText("点击后回到对应线程")
+                    .setSummaryText(context.getString(R.string.notification_summary_open_thread))
             )
             .addAction(
                 android.R.drawable.ic_menu_view,
-                "查看线程",
+                context.getString(R.string.notification_action_view_thread),
                 pendingIntent,
             )
             .setContentIntent(pendingIntent)
@@ -205,10 +203,10 @@ object AgmenteNotifications {
         val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val channel = NotificationChannel(
             CHANNEL_ID,
-            CHANNEL_NAME,
+            context.getString(R.string.notification_channel_name),
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
-            description = CHANNEL_DESCRIPTION
+            description = context.getString(R.string.notification_channel_description)
             enableVibration(true)
             vibrationPattern = VIBRATION_PATTERN
             enableLights(true)
@@ -235,5 +233,10 @@ object AgmenteNotifications {
         } else {
             true
         }
+    }
+
+    private fun contextString(resId: Int): String {
+        val context = appContext ?: return ""
+        return context.getString(resId)
     }
 }
