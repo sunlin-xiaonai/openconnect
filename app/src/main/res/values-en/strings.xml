@@ -98,6 +98,7 @@
     <string name="thread_prompt_hint_enabled">The current thread context will continue after sending.</string>
     <string name="thread_prompt_hint_disabled">The thread has not finished loading yet, so sending is temporarily disabled.</string>
     <string name="thread_approval_title">Pending approvals</string>
+    <string name="thread_approval_dialog_message">The current task is waiting for your decision. Approve or reject it here before the thread can continue.</string>
     <string name="thread_transcript_empty_title">No history yet</string>
     <string name="thread_transcript_empty_description">Once you open an existing thread, recent conversation and tool activity will appear here.</string>
     <string name="thread_transcript_history_title">Transcript</string>

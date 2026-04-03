@@ -48,6 +48,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -238,6 +240,12 @@ fun OpenConnectApp(
             .orEmpty()
         viewModel.consumePendingThreadNavigation(targetThreadId)
     }
+
+    GlobalApprovalDialog(
+        approvals = uiState.pendingApprovals,
+        onApprove = viewModel::approveRequest,
+        onDecline = viewModel::declineRequest,
+    )
 
     if (isCodexMode && selectedThreadId != null) {
         CodexThreadDetailScreen(
@@ -2541,24 +2549,70 @@ private fun PromptCard(
 }
 
 @Composable
-private fun ApprovalCard(
+private fun GlobalApprovalDialog(
     approvals: List<CodexApprovalRequest>,
     onApprove: (kotlinx.serialization.json.JsonElement) -> Unit,
     onDecline: (kotlinx.serialization.json.JsonElement) -> Unit,
 ) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer
-        )
+    if (approvals.isEmpty()) {
+        return
+    }
+
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+        ),
     ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.thread_approval_title),
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Text(
+                    text = stringResource(R.string.thread_approval_dialog_message),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ApprovalCard(
+                    approvals = approvals,
+                    onApprove = onApprove,
+                    onDecline = onDecline,
+                    embedInCard = false,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ApprovalCard(
+    approvals: List<CodexApprovalRequest>,
+    onApprove: (kotlinx.serialization.json.JsonElement) -> Unit,
+    onDecline: (kotlinx.serialization.json.JsonElement) -> Unit,
+    embedInCard: Boolean = true,
+) {
+    val content: @Composable () -> Unit = {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = stringResource(R.string.thread_approval_title),
-                style = MaterialTheme.typography.titleMedium,
-            )
+            if (embedInCard) {
+                Text(
+                    text = stringResource(R.string.thread_approval_title),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
             approvals.forEach { approval ->
                 Card(
                     colors = CardDefaults.cardColors(
@@ -2623,6 +2677,18 @@ private fun ApprovalCard(
                 }
             }
         }
+    }
+
+    if (embedInCard) {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer
+            )
+        ) {
+            content()
+        }
+    } else {
+        content()
     }
 }
 

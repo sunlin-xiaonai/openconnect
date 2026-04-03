@@ -98,6 +98,7 @@
     <string name="thread_prompt_hint_enabled">发送后会继续沿用当前线程的上下文。</string>
     <string name="thread_prompt_hint_disabled">线程还没加载完成，暂时不能发送。</string>
     <string name="thread_approval_title">待审批请求</string>
+    <string name="thread_approval_dialog_message">当前任务正在等待你的处理。先在这里批准或拒绝，线程才会继续执行。</string>
     <string name="thread_transcript_empty_title">当前还没有历史记录</string>
     <string name="thread_transcript_empty_description">打开已有线程后，这里会显示最近的对话和工具执行记录。</string>
     <string name="thread_transcript_history_title">会话历史</string>
