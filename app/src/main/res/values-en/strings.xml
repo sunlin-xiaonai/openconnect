@@ -62,6 +62,9 @@
 
     <string name="tab_threads">Threads</string>
     <string name="tab_logs">Logs</string>
+    <string name="nav_mascot_running">Running</string>
+    <string name="nav_mascot_resting">Resting</string>
+    <string name="nav_mascot_content_description">Navigation pixel mascot, status: %1$s</string>
     <string name="thread_title_unnamed">Untitled thread</string>
     <string name="thread_detail_title">Thread details</string>
     <string name="thread_list_title">Threads</string>

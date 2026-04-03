@@ -1,6 +1,10 @@
 package com.openconnect.android
 
+import android.animation.ValueAnimator
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,12 +19,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
@@ -56,8 +63,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -76,6 +89,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 private fun sessionTimeLabel(epochSeconds: Long): String =
     DateTimeFormatter
@@ -97,6 +111,27 @@ private enum class ThreadScope {
     All,
     CurrentProject,
 }
+
+private enum class PixelMascotMode {
+    Running,
+    Resting,
+}
+
+private data class PixelBlock(
+    val x: Int,
+    val y: Int,
+    val color: Color,
+)
+
+private data class PixelMascotPalette(
+    val skin: Color,
+    val hair: Color,
+    val shirt: Color,
+    val pants: Color,
+    val accent: Color,
+    val shoe: Color,
+    val status: Color,
+)
 
 private fun normalizedProjectPath(path: String?): String? =
     path?.trim()
@@ -351,6 +386,11 @@ private fun MainHomeScreen(
                     TopBarConnectionBadge(uiState = uiState)
                 },
                 actions = {
+                    NavigationPixelMascot(
+                        uiState = uiState,
+                        compact = true,
+                        modifier = Modifier.padding(end = 6.dp),
+                    )
                     IconButton(onClick = onOpenSettings) {
                         Icon(
                             Icons.Outlined.Settings,
@@ -406,6 +446,260 @@ private fun MainHomeScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun NavigationPixelMascot(
+    uiState: AcpUiState,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    val mode = if (uiState.isStreaming || uiState.sessionSummaries.any { it.isRunning }) {
+        PixelMascotMode.Running
+    } else {
+        PixelMascotMode.Resting
+    }
+    val animationsEnabled = ValueAnimator.areAnimatorsEnabled()
+    var frame by rememberSaveable(mode, animationsEnabled) { mutableStateOf(0) }
+
+    LaunchedEffect(mode, animationsEnabled) {
+        frame = 0
+        if (!animationsEnabled) {
+            return@LaunchedEffect
+        }
+        val frameCount = when (mode) {
+            PixelMascotMode.Running -> 4
+            PixelMascotMode.Resting -> 2
+        }
+        val frameDelay = when (mode) {
+            PixelMascotMode.Running -> 140L
+            PixelMascotMode.Resting -> 900L
+        }
+        while (true) {
+            delay(frameDelay)
+            frame = (frame + 1) % frameCount
+        }
+    }
+
+    val statusLabel = stringResource(
+        when (mode) {
+            PixelMascotMode.Running -> R.string.nav_mascot_running
+            PixelMascotMode.Resting -> R.string.nav_mascot_resting
+        }
+    )
+    val mascotDescription = stringResource(
+        R.string.nav_mascot_content_description,
+        statusLabel,
+    )
+    val statusColor by animateColorAsState(
+        targetValue = when (mode) {
+            PixelMascotMode.Running -> Color(0xFF33C26B)
+            PixelMascotMode.Resting -> Color(0xFF7E8CA6)
+        },
+        label = "navMascotStatusColor",
+    )
+    val cardColor by animateColorAsState(
+        targetValue = when (mode) {
+            PixelMascotMode.Running -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.98f)
+            PixelMascotMode.Resting -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f)
+        },
+        label = "navMascotCardColor",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = statusColor.copy(alpha = 0.42f),
+        label = "navMascotBorderColor",
+    )
+    val palette = PixelMascotPalette(
+        skin = Color(0xFFF4D3A1),
+        hair = Color(0xFF263238),
+        shirt = if (mode == PixelMascotMode.Running) Color(0xFF2F80ED) else Color(0xFF5F6E82),
+        pants = if (mode == PixelMascotMode.Running) Color(0xFF1E4DA1) else Color(0xFF364352),
+        accent = if (mode == PixelMascotMode.Running) Color(0xFFFFB84D) else Color(0xFFB8C1D1),
+        shoe = Color(0xFF1B1F24),
+        status = statusColor,
+    )
+
+    Card(
+        modifier = modifier.semantics {
+            contentDescription = mascotDescription
+        },
+        shape = RoundedCornerShape(if (compact) 12.dp else 18.dp),
+        colors = CardDefaults.cardColors(containerColor = cardColor),
+        border = BorderStroke(1.dp, borderColor),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(if (compact) 34.dp else 72.dp)
+                .height(if (compact) 34.dp else 56.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                if (!compact) {
+                    val stripeWidth = size.width / 8f
+                    repeat(6) { index ->
+                        drawRoundRect(
+                            color = statusColor.copy(alpha = 0.07f),
+                            topLeft = Offset(
+                                x = 6.dp.toPx() + (index * stripeWidth),
+                                y = 10.dp.toPx(),
+                            ),
+                            size = Size(
+                                width = stripeWidth / 2f,
+                                height = size.height - 20.dp.toPx(),
+                            ),
+                            cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
+                        )
+                    }
+                }
+                val shadowWidth = if (compact) 14.dp.toPx() else if (mode == PixelMascotMode.Running) 24.dp.toPx() else 20.dp.toPx()
+                drawRoundRect(
+                    color = Color.Black.copy(alpha = 0.14f),
+                    topLeft = Offset(
+                        x = (size.width - shadowWidth) / 2f,
+                        y = size.height - if (compact) 9.dp.toPx() else 12.dp.toPx(),
+                    ),
+                    size = Size(
+                        width = shadowWidth,
+                        height = if (compact) 3.dp.toPx() else 5.dp.toPx(),
+                    ),
+                    cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx()),
+                )
+            }
+            Canvas(
+                modifier = Modifier
+                    .width(if (compact) 18.dp else 34.dp)
+                    .height(if (compact) 18.dp else 34.dp),
+            ) {
+                drawPixelMascot(
+                    blocks = buildPixelMascotBlocks(
+                        mode = mode,
+                        frame = frame,
+                        palette = palette,
+                    )
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(
+                        top = if (compact) 5.dp else 8.dp,
+                        end = if (compact) 5.dp else 8.dp,
+                    )
+                    .width(if (compact) 6.dp else 8.dp)
+                    .height(if (compact) 6.dp else 8.dp)
+                    .background(statusColor, CircleShape),
+            )
+        }
+    }
+}
+
+private fun buildPixelMascotBlocks(
+    mode: PixelMascotMode,
+    frame: Int,
+    palette: PixelMascotPalette,
+): List<PixelBlock> {
+    val blocks = mutableListOf<PixelBlock>()
+
+    fun fillRect(x: Int, y: Int, width: Int, height: Int, color: Color) {
+        for (dx in 0 until width) {
+            for (dy in 0 until height) {
+                blocks += PixelBlock(
+                    x = x + dx,
+                    y = y + dy,
+                    color = color,
+                )
+            }
+        }
+    }
+
+    val verticalOffset = if (mode == PixelMascotMode.Resting && frame % 2 == 1) 1 else 0
+
+    fillRect(4, 1 + verticalOffset, 3, 1, palette.hair)
+    fillRect(3, 2 + verticalOffset, 5, 2, palette.skin)
+    fillRect(4, 2 + verticalOffset, 3, 1, palette.hair)
+    fillRect(4, 3 + verticalOffset, 1, 1, palette.hair)
+    fillRect(6, 3 + verticalOffset, 1, 1, palette.hair)
+    fillRect(4, 4 + verticalOffset, 3, 3, palette.shirt)
+    fillRect(4, 7 + verticalOffset, 3, 1, palette.accent)
+
+    when (mode) {
+        PixelMascotMode.Running -> when (frame % 4) {
+            0 -> {
+                fillRect(2, 4, 1, 2, palette.skin)
+                fillRect(7, 5, 1, 2, palette.skin)
+                fillRect(3, 8, 1, 3, palette.pants)
+                fillRect(6, 8, 1, 1, palette.pants)
+                fillRect(7, 9, 1, 2, palette.pants)
+                fillRect(2, 11, 2, 1, palette.shoe)
+                fillRect(7, 11, 2, 1, palette.shoe)
+            }
+
+            1 -> {
+                fillRect(2, 5, 1, 2, palette.skin)
+                fillRect(7, 4, 1, 2, palette.skin)
+                fillRect(4, 8, 1, 2, palette.pants)
+                fillRect(3, 10, 1, 1, palette.pants)
+                fillRect(6, 8, 1, 2, palette.pants)
+                fillRect(7, 10, 1, 1, palette.pants)
+                fillRect(3, 11, 2, 1, palette.shoe)
+                fillRect(6, 11, 2, 1, palette.shoe)
+            }
+
+            2 -> {
+                fillRect(2, 5, 1, 2, palette.skin)
+                fillRect(8, 4, 1, 2, palette.skin)
+                fillRect(4, 8, 1, 1, palette.pants)
+                fillRect(3, 9, 1, 2, palette.pants)
+                fillRect(6, 8, 1, 3, palette.pants)
+                fillRect(3, 11, 2, 1, palette.shoe)
+                fillRect(7, 11, 2, 1, palette.shoe)
+            }
+
+            else -> {
+                fillRect(3, 4, 1, 2, palette.skin)
+                fillRect(8, 5, 1, 2, palette.skin)
+                fillRect(4, 8, 1, 2, palette.pants)
+                fillRect(5, 10, 1, 1, palette.pants)
+                fillRect(6, 8, 1, 2, palette.pants)
+                fillRect(7, 10, 1, 1, palette.pants)
+                fillRect(4, 11, 2, 1, palette.shoe)
+                fillRect(6, 11, 2, 1, palette.shoe)
+            }
+        }
+
+        PixelMascotMode.Resting -> {
+            fillRect(3, 5 + verticalOffset, 1, 2, palette.skin)
+            fillRect(7, 5 + verticalOffset, 1, 2, palette.skin)
+            fillRect(4, 8 + verticalOffset, 1, 3, palette.pants)
+            fillRect(6, 8 + verticalOffset, 1, 3, palette.pants)
+            fillRect(4, 11 + verticalOffset, 2, 1, palette.shoe)
+            fillRect(6, 11 + verticalOffset, 2, 1, palette.shoe)
+            fillRect(2, 10 + verticalOffset, 7, 1, palette.status.copy(alpha = 0.18f))
+        }
+    }
+
+    return blocks
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPixelMascot(
+    blocks: List<PixelBlock>,
+) {
+    val spriteWidth = 12
+    val spriteHeight = 13
+    val pixelSize = minOf(size.width / spriteWidth, size.height / spriteHeight)
+    val originX = (size.width - (spriteWidth * pixelSize)) / 2f
+    val originY = (size.height - (spriteHeight * pixelSize)) / 2f
+
+    blocks.forEach { block ->
+        drawRect(
+            color = block.color,
+            topLeft = Offset(
+                x = originX + (block.x * pixelSize),
+                y = originY + (block.y * pixelSize),
+            ),
+            size = Size(pixelSize, pixelSize),
+        )
     }
 }
 
