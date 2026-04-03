@@ -8,7 +8,12 @@ RUNTIME_DIR="${PROJECT_ROOT}/.openconnect-runtime"
 mkdir -p "${RUNTIME_DIR}"
 
 COMMAND="up"
-MODE="quick"
+MODE=""
+MODE_EXPLICIT=0
+CWD_EXPLICIT=0
+LISTEN_HOST_EXPLICIT=0
+LISTEN_PORT_EXPLICIT=0
+CLOUDFLARED_CONFIG_EXPLICIT=0
 CWD_PATH="${PROJECT_ROOT}"
 LISTEN_HOST="127.0.0.1"
 LISTEN_PORT="9000"
@@ -16,6 +21,7 @@ ENDPOINT=""
 HOSTNAME=""
 TUNNEL_NAME=""
 CLOUDFLARED_CONFIG="${HOME}/.cloudflared/config.yml"
+LOCAL_DEFAULTS_FILE="${PROJECT_ROOT}/.openconnect.local.env"
 PERMISSION_PRESET="safe"
 CREATE_SESSION=1
 INITIALIZE=1
@@ -28,6 +34,7 @@ PRINT_QR=1
 READY_TIMEOUT_SECONDS="90"
 LAST_ENDPOINT_STATUS=""
 LAST_ENDPOINT_PROBE_MODE="system"
+MODE_SOURCE="fallback"
 DOCTOR_HAS_BLOCKER=0
 NAMED_TUNNEL_TEMPLATE_FILE="${PROJECT_ROOT}/docs/examples/cloudflared-config.example.yml"
 
@@ -52,7 +59,7 @@ usage() {
   doctor   检查依赖、Cloudflare 配置与下一步操作建议
 
 模式：
-  --quick-tunnel            使用 Cloudflare Quick Tunnel（默认）
+  --quick-tunnel            强制使用 Cloudflare Quick Tunnel
   --endpoint WSS_URL        使用现成公网 WebSocket 地址，不启动 cloudflared
   --named-tunnel NAME       使用命名 Tunnel；需配合 --hostname
 
@@ -81,6 +88,11 @@ usage() {
   scripts/openconnect_pair_up.sh up --endpoint wss://codex.example.com --cwd "$PWD"
   scripts/openconnect_pair_up.sh status
   scripts/openconnect_pair_up.sh stop
+
+默认策略：
+  1. 优先读取 .openconnect.local.env（不入库的本地私有配置）
+  2. 否则自动检测 ~/.cloudflared/config.yml 中映射到当前端口的命名 Tunnel
+  3. 只有都没有时，才退回 Quick Tunnel
 EOF
 }
 
@@ -215,6 +227,146 @@ doctor_mode_label() {
   esac
 }
 
+mode_source_label() {
+  case "${MODE_SOURCE}" in
+    explicit)
+      printf '命令行参数'
+      ;;
+    local-env)
+      printf '本地私有配置'
+      ;;
+    cloudflared-config)
+      printf 'cloudflared 本地映射'
+      ;;
+    fallback)
+      printf 'Quick Tunnel 回退'
+      ;;
+    *)
+      printf '%s' "${MODE_SOURCE}"
+      ;;
+  esac
+}
+
+load_local_defaults_file() {
+  [[ -f "${LOCAL_DEFAULTS_FILE}" ]] || return 0
+  # shellcheck disable=SC1090
+  source "${LOCAL_DEFAULTS_FILE}"
+}
+
+apply_env_default_if_empty() {
+  local var_name="$1"
+  local env_name="$2"
+  local current_value="${!var_name}"
+  local env_value="${!env_name:-}"
+  if [[ -z "${current_value}" && -n "${env_value}" ]]; then
+    printf -v "${var_name}" '%s' "${env_value}"
+  fi
+}
+
+cloudflared_hostname_for_port() {
+  local file="$1"
+  local port="$2"
+  local listen_host="$3"
+  [[ -f "${file}" ]] || return 1
+
+  awk -v port="${port}" -v listen_host="${listen_host}" '
+    function trim(value) {
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      return value
+    }
+    function service_target(value, normalized, parts) {
+      normalized = trim(value)
+      sub(/^[a-z]+:\/\//, "", normalized)
+      split(normalized, parts, "/")
+      return parts[1]
+    }
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*-[[:space:]]*hostname:[[:space:]]*/ {
+      current_host = $0
+      sub(/^[[:space:]]*-[[:space:]]*hostname:[[:space:]]*/, "", current_host)
+      current_host = trim(current_host)
+      next
+    }
+    /^[[:space:]]*hostname:[[:space:]]*/ {
+      current_host = $0
+      sub(/^[[:space:]]*hostname:[[:space:]]*/, "", current_host)
+      current_host = trim(current_host)
+      next
+    }
+    /^[[:space:]]*service:[[:space:]]*/ {
+      target = service_target(substr($0, index($0, ":") + 1))
+      if (current_host != "") {
+        if (target == "127.0.0.1:" port || target == "localhost:" port || target == listen_host ":" port) {
+          print current_host
+          exit
+        }
+      }
+    }
+  ' "${file}"
+}
+
+resolve_mode_defaults() {
+  load_local_defaults_file
+
+  if [[ "${CWD_EXPLICIT}" != "1" && -n "${OPENCONNECT_CWD:-}" ]]; then
+    CWD_PATH="${OPENCONNECT_CWD}"
+  fi
+  if [[ "${LISTEN_HOST_EXPLICIT}" != "1" && -n "${OPENCONNECT_LISTEN_HOST:-}" ]]; then
+    LISTEN_HOST="${OPENCONNECT_LISTEN_HOST}"
+  fi
+  if [[ "${LISTEN_PORT_EXPLICIT}" != "1" && -n "${OPENCONNECT_LISTEN_PORT:-}" ]]; then
+    LISTEN_PORT="${OPENCONNECT_LISTEN_PORT}"
+  fi
+  if [[ "${CLOUDFLARED_CONFIG_EXPLICIT}" != "1" && -n "${OPENCONNECT_CLOUDFLARED_CONFIG:-}" ]]; then
+    CLOUDFLARED_CONFIG="${OPENCONNECT_CLOUDFLARED_CONFIG}"
+  fi
+  apply_env_default_if_empty "ENDPOINT" "OPENCONNECT_ENDPOINT"
+  apply_env_default_if_empty "HOSTNAME" "OPENCONNECT_HOSTNAME"
+  apply_env_default_if_empty "TUNNEL_NAME" "OPENCONNECT_TUNNEL_NAME"
+  apply_env_default_if_empty "BEARER_TOKEN" "OPENCONNECT_BEARER_TOKEN"
+  apply_env_default_if_empty "CF_ACCESS_CLIENT_ID" "OPENCONNECT_CF_ACCESS_CLIENT_ID"
+  apply_env_default_if_empty "CF_ACCESS_CLIENT_SECRET" "OPENCONNECT_CF_ACCESS_CLIENT_SECRET"
+
+  if [[ -z "${MODE}" && -n "${OPENCONNECT_MODE:-}" ]]; then
+    MODE="${OPENCONNECT_MODE}"
+    MODE_SOURCE="local-env"
+  fi
+
+  if [[ -z "${MODE}" ]]; then
+    local config_tunnel=""
+    local config_hostname=""
+    config_tunnel="$(config_scalar_value 'tunnel' "${CLOUDFLARED_CONFIG}" || true)"
+    config_hostname="$(cloudflared_hostname_for_port "${CLOUDFLARED_CONFIG}" "${LISTEN_PORT}" "${LISTEN_HOST}" || true)"
+    if [[ -n "${config_tunnel}" && -n "${config_hostname}" ]]; then
+      MODE="named"
+      [[ -n "${TUNNEL_NAME}" ]] || TUNNEL_NAME="${config_tunnel}"
+      [[ -n "${HOSTNAME}" ]] || HOSTNAME="${config_hostname}"
+      MODE_SOURCE="cloudflared-config"
+    fi
+  fi
+
+  if [[ -z "${MODE}" ]]; then
+    MODE="quick"
+    MODE_SOURCE="fallback"
+  fi
+
+  case "${MODE}" in
+    quick)
+      ;;
+    endpoint)
+      [[ -n "${ENDPOINT}" ]] || fail "endpoint 模式需要 --endpoint WSS_URL 或在 ${LOCAL_DEFAULTS_FILE} 中配置 OPENCONNECT_ENDPOINT"
+      ;;
+    named)
+      [[ -n "${TUNNEL_NAME}" ]] || fail "命名 Tunnel 模式需要 --named-tunnel NAME，或在 ${LOCAL_DEFAULTS_FILE} 中配置 OPENCONNECT_TUNNEL_NAME"
+      [[ -n "${HOSTNAME}" ]] || fail "命名 Tunnel 模式需要 --hostname HOST，或在 ${LOCAL_DEFAULTS_FILE} 中配置 OPENCONNECT_HOSTNAME"
+      ;;
+    *)
+      fail "不支持的模式：${MODE}"
+      ;;
+  esac
+}
+
 validate_named_tunnel_args() {
   [[ -n "${TUNNEL_NAME}" ]] || fail $'命名 Tunnel 模式需要 --named-tunnel NAME\n示例：bash scripts/openconnect_pair_up.sh doctor --named-tunnel openconnect-codex --hostname codex.example.com'
   [[ -n "${HOSTNAME}" ]] || fail $'命名 Tunnel 模式需要 --hostname HOST\n示例：bash scripts/openconnect_pair_up.sh doctor --named-tunnel openconnect-codex --hostname codex.example.com'
@@ -265,6 +417,7 @@ run_doctor() {
 
   doctor_print "OpenConnect Pair Doctor"
   doctor_print "当前模式：$(doctor_mode_label)"
+  doctor_print "模式来源：$(mode_source_label)"
   doctor_print "工作目录：${CWD_PATH}"
   doctor_print "本地监听：ws://${LISTEN_HOST}:${LISTEN_PORT}"
   doctor_print ""
@@ -282,9 +435,10 @@ run_doctor() {
   case "${MODE}" in
     quick)
       doctor_print "模式说明："
-      doctor_item "Quick Tunnel 是默认模式，不需要固定域名，也不需要先执行 cloudflared tunnel login"
+      doctor_item "Quick Tunnel 是回退模式，不需要固定域名，也不需要先执行 cloudflared tunnel login"
       doctor_item "每次启动都会生成新的 trycloudflare.com 域名"
-      doctor_item "如果你想长期稳定使用自己的域名，请改用命名 Tunnel："
+      doctor_item "如果你本地已经有命名 Tunnel 映射，脚本会优先自动使用固定域名"
+      doctor_item "如果你想长期稳定使用自己的域名，也可以显式指定命名 Tunnel："
       doctor_item "  bash scripts/openconnect_pair_up.sh doctor --named-tunnel openconnect-codex --hostname codex.example.com"
       ;;
     named)
@@ -811,6 +965,7 @@ stop_all() {
 
 status() {
   log "项目目录：${PROJECT_ROOT}"
+  log "当前模式：$(doctor_mode_label)（来源：$(mode_source_label)）"
   log "默认工作目录：${CWD_PATH}"
   log "本地 Codex 监听：ws://${LISTEN_HOST}:${LISTEN_PORT}"
 
@@ -874,6 +1029,7 @@ run_up() {
   pair_url="$(build_pair_url "${ws_endpoint}")"
 
   log "公网 WebSocket：${ws_endpoint}"
+  log "当前模式：$(doctor_mode_label)（来源：$(mode_source_label)）"
   log "配对链接：${pair_url}"
   if [[ "${LAST_ENDPOINT_PROBE_MODE}" == public-dns:* ]]; then
     log "注意：当前机器默认 DNS 无法解析 Tunnel 域名，脚本已改用公共 DNS 探测。若手机与电脑共用同一 Wi-Fi DNS，扫码后仍可能连不上；可改用移动网络，或使用 --named-tunnel / --endpoint 配置稳定域名。"
@@ -903,15 +1059,21 @@ parse_args() {
         ;;
       --quick-tunnel)
         MODE="quick"
+        MODE_EXPLICIT=1
+        MODE_SOURCE="explicit"
         shift
         ;;
       --endpoint)
         MODE="endpoint"
+        MODE_EXPLICIT=1
+        MODE_SOURCE="explicit"
         ENDPOINT="${2:-}"
         shift 2
         ;;
       --named-tunnel)
         MODE="named"
+        MODE_EXPLICIT=1
+        MODE_SOURCE="explicit"
         TUNNEL_NAME="${2:-}"
         shift 2
         ;;
@@ -921,18 +1083,22 @@ parse_args() {
         ;;
       --cwd)
         CWD_PATH="${2:-}"
+        CWD_EXPLICIT=1
         shift 2
         ;;
       --listen-port)
         LISTEN_PORT="${2:-}"
+        LISTEN_PORT_EXPLICIT=1
         shift 2
         ;;
       --listen-host)
         LISTEN_HOST="${2:-}"
+        LISTEN_HOST_EXPLICIT=1
         shift 2
         ;;
       --cloudflared-config)
         CLOUDFLARED_CONFIG="${2:-}"
+        CLOUDFLARED_CONFIG_EXPLICIT=1
         shift 2
         ;;
       --permission)
@@ -990,6 +1156,7 @@ parse_args() {
 
 main() {
   parse_args "$@"
+  resolve_mode_defaults
 
   case "${COMMAND}" in
     up)

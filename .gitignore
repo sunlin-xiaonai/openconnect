@@ -1,6 +1,7 @@
 .gradle/
 .idea/
 .openconnect-runtime/
+.openconnect.local.env
 dist/
 build/
 app/build/

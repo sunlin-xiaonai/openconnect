@@ -35,7 +35,8 @@ Run the dependency and environment check first:
 bash scripts/openconnect_pair_up.sh doctor
 ```
 
-Then start the default Quick Tunnel flow:
+If your machine already has a private fixed-domain mapping in `~/.cloudflared/config.yml`, the script prefers that named-tunnel mapping automatically.
+Use Quick Tunnel only when you explicitly want a temporary `trycloudflare.com` address:
 
 ```bash
 bash scripts/openconnect_pair_up.sh up \
@@ -50,6 +51,8 @@ The script will:
 - start `cloudflared` if needed
 - print an `openconnect://connect?...` pairing link
 - print a QR code in the terminal when `qrencode` is installed
+
+If you prefer to keep your private hostname completely outside the repository, copy `.openconnect.local.env.example` to `.openconnect.local.env` and put your own `OPENCONNECT_HOSTNAME` / `OPENCONNECT_TUNNEL_NAME` or `OPENCONNECT_ENDPOINT` there.
 
 On the phone:
 

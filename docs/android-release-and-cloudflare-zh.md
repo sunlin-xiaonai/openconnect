@@ -35,7 +35,8 @@
 bash scripts/openconnect_pair_up.sh doctor
 ```
 
-然后直接启动默认 Quick Tunnel：
+如果你的电脑本地 `~/.cloudflared/config.yml` 已经配好了固定域名映射，脚本现在会优先使用那个命名 Tunnel。
+只有你明确想走临时 `trycloudflare.com` 地址时，才需要强制指定 Quick Tunnel：
 
 ```bash
 bash scripts/openconnect_pair_up.sh up \
@@ -50,6 +51,8 @@ bash scripts/openconnect_pair_up.sh up \
 - 在需要时拉起 `cloudflared`
 - 输出 `openconnect://connect?...` 配对链接
 - 如果本机装了 `qrencode`，还会直接在终端打印二维码
+
+如果你希望把私有域名配置完全放在仓库外，可以把 `.openconnect.local.env.example` 复制为 `.openconnect.local.env`，然后把你自己的 `OPENCONNECT_HOSTNAME` / `OPENCONNECT_TUNNEL_NAME` 或 `OPENCONNECT_ENDPOINT` 写进去。
 
 手机端操作：
 
