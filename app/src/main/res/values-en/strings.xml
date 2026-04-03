@@ -1,15 +1,15 @@
 <resources>
-    <string name="app_name">Agmente Android</string>
+    <string name="app_name">OpenConnect</string>
 
     <string name="toast_camera_permission_denied">Camera permission was denied, so QR pairing is unavailable.</string>
     <string name="toast_notifications_permission_denied">Notification permission was denied, so background completion alerts will be unavailable.</string>
-    <string name="scan_prompt_pair_qr">Scan the Agmente pairing QR code</string>
+    <string name="scan_prompt_pair_qr">Scan the OpenConnect pairing QR code</string>
 
     <string name="notification_channel_name">Task completion alerts</string>
     <string name="notification_channel_description">High-priority alerts for completed, failed, or action-required threads.</string>
     <string name="notification_title_completed">Task completed</string>
     <string name="notification_title_failed">Task failed</string>
-    <string name="notification_subtext">Agmente task alert</string>
+    <string name="notification_subtext">OpenConnect task alert</string>
     <string name="notification_summary_open_thread">Tap to return to the matching thread</string>
     <string name="notification_action_view_thread">Open thread</string>
     <string name="notification_thread_completed_default_description">The task finished. Return to the thread to review the result.</string>
@@ -201,7 +201,7 @@
     <string name="prompt_card_title">Task input</string>
     <string name="field_prompt">Prompt</string>
     <string name="prompt_hint_codex">After sending, the task runs in the current thread. If no thread is selected, the app creates one automatically.</string>
-    <string name="prompt_hint_acp">Supports prefilling from agmente://task or shared plain text.</string>
+    <string name="prompt_hint_acp">Supports prefilling from openconnect://task or shared plain text.</string>
 
     <string name="codex_role_user">User</string>
     <string name="codex_role_assistant">Assistant</string>

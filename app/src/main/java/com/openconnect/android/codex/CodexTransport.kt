@@ -1,9 +1,9 @@
-package com.agmente.android.codex
+package com.openconnect.android.codex
 
-import com.agmente.android.acp.AcpTransport
-import com.agmente.android.acp.jsonRpcError
-import com.agmente.android.acp.jsonRpcRequest
-import com.agmente.android.acp.jsonRpcResponse
+import com.openconnect.android.acp.AcpTransport
+import com.openconnect.android.acp.jsonRpcError
+import com.openconnect.android.acp.jsonRpcRequest
+import com.openconnect.android.acp.jsonRpcResponse
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.serialization.json.Json

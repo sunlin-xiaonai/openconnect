@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-RUNTIME_DIR="${PROJECT_ROOT}/.agmente-runtime"
+RUNTIME_DIR="${PROJECT_ROOT}/.openconnect-runtime"
 mkdir -p "${RUNTIME_DIR}"
 
 COMMAND="up"
@@ -40,13 +40,13 @@ CLOUDFLARED_URL_FILE="${RUNTIME_DIR}/cloudflared-public-url.txt"
 usage() {
   cat <<'EOF'
 用法：
-  scripts/agmente_pair_up.sh [up|status|stop|doctor] [选项]
+  scripts/openconnect_pair_up.sh [up|status|stop|doctor] [选项]
 
 默认命令：
   up
 
 命令：
-  up       检查并拉起 Codex + Tunnel，输出可扫码的 agmente://connect 链接
+  up       检查并拉起 Codex + Tunnel，输出可扫码的 openconnect://connect 链接
   status   查看本地服务、Tunnel、配对链接状态
   stop     停止脚本拉起的 Codex / cloudflared 进程
   doctor   检查依赖、Cloudflare 配置与下一步操作建议
@@ -74,22 +74,22 @@ usage() {
   --ready-timeout SECONDS   等待公网入口就绪的超时时间，默认 90 秒
 
 示例：
-  scripts/agmente_pair_up.sh doctor
-  scripts/agmente_pair_up.sh doctor --named-tunnel agmente-codex --hostname codex.example.com
-  scripts/agmente_pair_up.sh up --quick-tunnel --cwd "$PWD"
-  scripts/agmente_pair_up.sh up --named-tunnel agmente-codex --hostname codex.example.com --cwd "$PWD"
-  scripts/agmente_pair_up.sh up --endpoint wss://codex.example.com --cwd "$PWD"
-  scripts/agmente_pair_up.sh status
-  scripts/agmente_pair_up.sh stop
+  scripts/openconnect_pair_up.sh doctor
+  scripts/openconnect_pair_up.sh doctor --named-tunnel openconnect-codex --hostname codex.example.com
+  scripts/openconnect_pair_up.sh up --quick-tunnel --cwd "$PWD"
+  scripts/openconnect_pair_up.sh up --named-tunnel openconnect-codex --hostname codex.example.com --cwd "$PWD"
+  scripts/openconnect_pair_up.sh up --endpoint wss://codex.example.com --cwd "$PWD"
+  scripts/openconnect_pair_up.sh status
+  scripts/openconnect_pair_up.sh stop
 EOF
 }
 
 log() {
-  printf '[agmente-pair] %s\n' "$*" >&2
+  printf '[openconnect-pair] %s\n' "$*" >&2
 }
 
 fail() {
-  printf '[agmente-pair] 错误：%s\n' "$*" >&2
+  printf '[openconnect-pair] 错误：%s\n' "$*" >&2
   exit 1
 }
 
@@ -105,7 +105,7 @@ missing_cmd_message() {
 缺少命令：codex
 下一步：
 1. 先安装并确保 `codex` 在 PATH 里可用
-2. 安装完成后先执行：bash scripts/agmente_pair_up.sh doctor
+2. 安装完成后先执行：bash scripts/openconnect_pair_up.sh doctor
 EOF
       ;;
     cloudflared)
@@ -116,9 +116,9 @@ EOF
 2. 如果你只是首次跑通，可直接使用默认 Quick Tunnel
 3. 如果你要固定域名，请先执行：
    cloudflared tunnel login
-   cloudflared tunnel create agmente-codex
-   cloudflared tunnel route dns agmente-codex codex.example.com
-4. 安装完成后先执行：bash scripts/agmente_pair_up.sh doctor
+   cloudflared tunnel create openconnect-codex
+   cloudflared tunnel route dns openconnect-codex codex.example.com
+4. 安装完成后先执行：bash scripts/openconnect_pair_up.sh doctor
 EOF
       ;;
     tmux)
@@ -127,7 +127,7 @@ EOF
 下一步：
 1. macOS 可执行：brew install tmux
 2. Linux 可执行：sudo apt install tmux
-3. 安装完成后先执行：bash scripts/agmente_pair_up.sh doctor
+3. 安装完成后先执行：bash scripts/openconnect_pair_up.sh doctor
 EOF
       ;;
     *)
@@ -170,7 +170,7 @@ print_named_tunnel_template_hint() {
 }
 
 print_named_tunnel_steps() {
-  local tunnel_name="${1:-agmente-codex}"
+  local tunnel_name="${1:-openconnect-codex}"
   local hostname="${2:-codex.example.com}"
   doctor_item "首次配置命名 Tunnel 时，通常需要依次执行："
   doctor_item "1. cloudflared tunnel login"
@@ -216,8 +216,8 @@ doctor_mode_label() {
 }
 
 validate_named_tunnel_args() {
-  [[ -n "${TUNNEL_NAME}" ]] || fail $'命名 Tunnel 模式需要 --named-tunnel NAME\n示例：bash scripts/agmente_pair_up.sh doctor --named-tunnel agmente-codex --hostname codex.example.com'
-  [[ -n "${HOSTNAME}" ]] || fail $'命名 Tunnel 模式需要 --hostname HOST\n示例：bash scripts/agmente_pair_up.sh doctor --named-tunnel agmente-codex --hostname codex.example.com'
+  [[ -n "${TUNNEL_NAME}" ]] || fail $'命名 Tunnel 模式需要 --named-tunnel NAME\n示例：bash scripts/openconnect_pair_up.sh doctor --named-tunnel openconnect-codex --hostname codex.example.com'
+  [[ -n "${HOSTNAME}" ]] || fail $'命名 Tunnel 模式需要 --hostname HOST\n示例：bash scripts/openconnect_pair_up.sh doctor --named-tunnel openconnect-codex --hostname codex.example.com'
 }
 
 validate_named_tunnel_config_or_fail() {
@@ -243,7 +243,7 @@ EOF
     service: http://127.0.0.1:${LISTEN_PORT}
 
 随后重新执行：
-  bash scripts/agmente_pair_up.sh up --named-tunnel ${TUNNEL_NAME} --hostname ${HOSTNAME} --cwd "${CWD_PATH}"
+  bash scripts/openconnect_pair_up.sh up --named-tunnel ${TUNNEL_NAME} --hostname ${HOSTNAME} --cwd "${CWD_PATH}"
 EOF
 )"
   fi
@@ -263,7 +263,7 @@ EOF
 run_doctor() {
   DOCTOR_HAS_BLOCKER=0
 
-  doctor_print "Agmente Pair Doctor"
+  doctor_print "OpenConnect Pair Doctor"
   doctor_print "当前模式：$(doctor_mode_label)"
   doctor_print "工作目录：${CWD_PATH}"
   doctor_print "本地监听：ws://${LISTEN_HOST}:${LISTEN_PORT}"
@@ -285,7 +285,7 @@ run_doctor() {
       doctor_item "Quick Tunnel 是默认模式，不需要固定域名，也不需要先执行 cloudflared tunnel login"
       doctor_item "每次启动都会生成新的 trycloudflare.com 域名"
       doctor_item "如果你想长期稳定使用自己的域名，请改用命名 Tunnel："
-      doctor_item "  bash scripts/agmente_pair_up.sh doctor --named-tunnel agmente-codex --hostname codex.example.com"
+      doctor_item "  bash scripts/openconnect_pair_up.sh doctor --named-tunnel openconnect-codex --hostname codex.example.com"
       ;;
     named)
       doctor_print "命名 Tunnel 检查："
@@ -334,13 +334,13 @@ run_doctor() {
         doctor_blocker "未找到 cloudflared 配置文件：${CLOUDFLARED_CONFIG}"
       fi
 
-      print_named_tunnel_steps "${TUNNEL_NAME:-agmente-codex}" "${HOSTNAME:-codex.example.com}"
+      print_named_tunnel_steps "${TUNNEL_NAME:-openconnect-codex}" "${HOSTNAME:-codex.example.com}"
       ;;
     endpoint)
       doctor_print "固定 Endpoint 检查："
       if [[ -z "${ENDPOINT}" ]]; then
         doctor_blocker "缺少 --endpoint WSS_URL"
-        doctor_item "示例：bash scripts/agmente_pair_up.sh doctor --endpoint wss://codex.example.com"
+        doctor_item "示例：bash scripts/openconnect_pair_up.sh doctor --endpoint wss://codex.example.com"
       else
         doctor_item "公网地址：${ENDPOINT}"
       fi
@@ -351,20 +351,20 @@ run_doctor() {
   doctor_print ""
   if [[ "${DOCTOR_HAS_BLOCKER}" == "1" ]]; then
     doctor_print "结果：当前仍有未完成项，暂时不建议直接执行 up。"
-    doctor_print "完成上面的步骤后，可重新执行：bash scripts/agmente_pair_up.sh doctor $([[ "${MODE}" == "named" ]] && printf -- '--named-tunnel %q --hostname %q' "${TUNNEL_NAME:-agmente-codex}" "${HOSTNAME:-codex.example.com}")"
+    doctor_print "完成上面的步骤后，可重新执行：bash scripts/openconnect_pair_up.sh doctor $([[ "${MODE}" == "named" ]] && printf -- '--named-tunnel %q --hostname %q' "${TUNNEL_NAME:-openconnect-codex}" "${HOSTNAME:-codex.example.com}")"
     return 1
   fi
 
   doctor_print "结果：当前环境可以尝试启动。"
   case "${MODE}" in
     quick)
-      doctor_print "下一步：bash scripts/agmente_pair_up.sh up --quick-tunnel --cwd \"${CWD_PATH}\""
+      doctor_print "下一步：bash scripts/openconnect_pair_up.sh up --quick-tunnel --cwd \"${CWD_PATH}\""
       ;;
     named)
-      doctor_print "下一步：bash scripts/agmente_pair_up.sh up --named-tunnel ${TUNNEL_NAME} --hostname ${HOSTNAME} --cwd \"${CWD_PATH}\""
+      doctor_print "下一步：bash scripts/openconnect_pair_up.sh up --named-tunnel ${TUNNEL_NAME} --hostname ${HOSTNAME} --cwd \"${CWD_PATH}\""
       ;;
     endpoint)
-      doctor_print "下一步：bash scripts/agmente_pair_up.sh up --endpoint ${ENDPOINT} --cwd \"${CWD_PATH}\""
+      doctor_print "下一步：bash scripts/openconnect_pair_up.sh up --endpoint ${ENDPOINT} --cwd \"${CWD_PATH}\""
       ;;
   esac
 }
@@ -402,11 +402,11 @@ stop_pid_file() {
 }
 
 codex_tmux_session_name() {
-  printf 'agmente-codex-app-server-%s' "${LISTEN_PORT}"
+  printf 'openconnect-codex-app-server-%s' "${LISTEN_PORT}"
 }
 
 cloudflared_tmux_session_name() {
-  printf 'agmente-cloudflared-%s' "${LISTEN_PORT}"
+  printf 'openconnect-cloudflared-%s' "${LISTEN_PORT}"
 }
 
 tmux_session_exists() {
@@ -778,7 +778,7 @@ build_pair_url() {
     query+="&cfAccessClientSecret=$(urlencode "${CF_ACCESS_CLIENT_SECRET}")"
   fi
 
-  printf 'agmente://connect?%s' "${query}"
+  printf 'openconnect://connect?%s' "${query}"
 }
 
 print_qr_if_available() {

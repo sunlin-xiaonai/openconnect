@@ -1,6 +1,6 @@
 .gradle/
 .idea/
-.agmente-runtime/
+.openconnect-runtime/
 dist/
 build/
 app/build/

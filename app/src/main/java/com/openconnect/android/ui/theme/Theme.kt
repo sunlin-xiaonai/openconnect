@@ -1,4 +1,4 @@
-package com.agmente.android.ui.theme
+package com.openconnect.android.ui.theme
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -28,7 +28,7 @@ private val DarkColors = darkColorScheme(
 )
 
 @Composable
-fun AgmenteAndroidTheme(content: @Composable () -> Unit) {
+fun OpenConnectTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = LightColors,
         content = content,

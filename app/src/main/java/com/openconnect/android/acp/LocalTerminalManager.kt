@@ -1,4 +1,4 @@
-package com.agmente.android.acp
+package com.openconnect.android.acp
 
 import java.io.File
 import java.util.UUID

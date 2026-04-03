@@ -1,4 +1,4 @@
-package com.agmente.android
+package com.openconnect.android
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -62,13 +62,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.agmente.android.codex.CodexApprovalRequest
-import com.agmente.android.codex.CodexPermissionPreset
-import com.agmente.android.codex.RemoteSessionSummary
-import com.agmente.android.codex.ServerMode
-import com.agmente.android.codex.TranscriptEntry
-import com.agmente.android.codex.TranscriptRole
-import com.agmente.android.codex.displayName
+import com.openconnect.android.codex.CodexApprovalRequest
+import com.openconnect.android.codex.CodexPermissionPreset
+import com.openconnect.android.codex.RemoteSessionSummary
+import com.openconnect.android.codex.ServerMode
+import com.openconnect.android.codex.TranscriptEntry
+import com.openconnect.android.codex.TranscriptRole
+import com.openconnect.android.codex.displayName
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -149,7 +149,7 @@ private fun topBarConnectionLabel(uiState: AcpUiState): String {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AgmenteApp(
+fun OpenConnectApp(
     viewModel: AcpViewModel,
     onScanPairCode: () -> Unit,
     notificationsGranted: Boolean,

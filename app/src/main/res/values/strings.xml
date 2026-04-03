@@ -1,15 +1,15 @@
 <resources>
-    <string name="app_name">Agmente Android</string>
+    <string name="app_name">OpenConnect</string>
 
     <string name="toast_camera_permission_denied">未授予相机权限，无法扫码连接</string>
     <string name="toast_notifications_permission_denied">未授予通知权限，后台完成提醒将不可用</string>
-    <string name="scan_prompt_pair_qr">扫描 Agmente 配对二维码</string>
+    <string name="scan_prompt_pair_qr">扫描 OpenConnect 配对二维码</string>
 
     <string name="notification_channel_name">任务完成提醒</string>
     <string name="notification_channel_description">线程执行完成、失败和等待处理时的高优先级提醒</string>
     <string name="notification_title_completed">任务已完成</string>
     <string name="notification_title_failed">任务执行出错</string>
-    <string name="notification_subtext">Agmente 任务提醒</string>
+    <string name="notification_subtext">OpenConnect 任务提醒</string>
     <string name="notification_summary_open_thread">点击后回到对应线程</string>
     <string name="notification_action_view_thread">查看线程</string>
     <string name="notification_thread_completed_default_description">任务已完成，可以回到线程里继续查看。</string>
@@ -201,7 +201,7 @@
     <string name="prompt_card_title">任务输入</string>
     <string name="field_prompt">Prompt</string>
     <string name="prompt_hint_codex">发送后会在当前线程执行；如果还没选线程，应用会自动先创建一个。</string>
-    <string name="prompt_hint_acp">支持从 agmente://task 或分享文本直接填充。</string>
+    <string name="prompt_hint_acp">支持从 openconnect://task 或分享文本直接填充。</string>
 
     <string name="codex_role_user">用户</string>
     <string name="codex_role_assistant">助手</string>

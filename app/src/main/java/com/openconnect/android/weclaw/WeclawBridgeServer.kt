@@ -1,4 +1,4 @@
-package com.agmente.android.weclaw
+package com.openconnect.android.weclaw
 
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -177,9 +177,9 @@ class WeclawBridgeServer(
                             buildJsonArray {
                                 add(
                                     buildJsonObject {
-                                        put("id", "agmente-acp")
+                                        put("id", "openconnect-acp")
                                         put("object", "model")
-                                        put("owned_by", "agmente-android")
+                                        put("owned_by", "openconnect-android")
                                     }
                                 )
                             }
@@ -333,7 +333,7 @@ class WeclawBridgeServer(
                     "error",
                     buildJsonObject {
                         put("message", message)
-                        put("type", "agmente_error")
+                        put("type", "openconnect_error")
                     }
                 )
             }

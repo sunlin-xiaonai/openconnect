@@ -1,4 +1,4 @@
-package com.agmente.android.acp
+package com.openconnect.android.acp
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement

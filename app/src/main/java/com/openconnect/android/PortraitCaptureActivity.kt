@@ -1,4 +1,4 @@
-package com.agmente.android
+package com.openconnect.android
 
 import com.journeyapps.barcodescanner.CaptureActivity
 

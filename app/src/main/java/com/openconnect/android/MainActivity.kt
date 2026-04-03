@@ -1,4 +1,4 @@
-package com.agmente.android
+package com.openconnect.android
 
 import android.Manifest
 import android.content.Intent
@@ -14,13 +14,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
-import com.agmente.android.ui.theme.AgmenteAndroidTheme
+import com.openconnect.android.ui.theme.OpenConnectTheme
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 
 class MainActivity : AppCompatActivity() {
     companion object {
-        private const val PREFS_NAME = "agmente_permissions"
+        private const val PREFS_NAME = "openconnect_permissions"
         private const val KEY_NOTIFICATIONS_REQUESTED = "notifications_requested"
     }
 
@@ -63,14 +63,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        AgmenteNotifications.initialize(this)
+        OpenConnectNotifications.initialize(this)
         viewModel.consumeIntent(intent)
         notificationsGranted = hasNotificationPermission()
         maybeRequestNotificationPermission()
 
         setContent {
-            AgmenteAndroidTheme {
-                AgmenteApp(
+            OpenConnectTheme {
+                OpenConnectApp(
                     viewModel = viewModel,
                     onScanPairCode = ::startPairScanner,
                     notificationsGranted = notificationsGranted,
@@ -88,11 +88,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        AgmenteNotifications.setAppVisible(true)
+        OpenConnectNotifications.setAppVisible(true)
     }
 
     override fun onStop() {
-        AgmenteNotifications.setAppVisible(false)
+        OpenConnectNotifications.setAppVisible(false)
         super.onStop()
     }
 

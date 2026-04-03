@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:name=".AgmenteApplication"
+        android:name=".OpenConnectApplication"
         android:allowBackup="true"
         android:enableOnBackInvokedCallback="true"
         android:icon="@android:drawable/sym_def_app_icon"
@@ -15,7 +15,7 @@
         android:localeConfig="@xml/locales_config"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AgmenteAndroid">
+        android:theme="@style/Theme.OpenConnectAndroid">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -35,7 +35,7 @@
 
                 <data
                     android:host="task"
-                    android:scheme="agmente" />
+                    android:scheme="openconnect" />
             </intent-filter>
 
             <intent-filter>
@@ -46,7 +46,7 @@
 
                 <data
                     android:host="connect"
-                    android:scheme="agmente" />
+                    android:scheme="openconnect" />
             </intent-filter>
 
             <intent-filter>

@@ -5,15 +5,15 @@ plugins {
 }
 
 android {
-    namespace = "com.agmente.android"
+    namespace = "com.openconnect.android"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.agmente.android"
+        applicationId = "com.openconnect.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

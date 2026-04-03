@@ -1,4 +1,4 @@
-package com.agmente.android
+package com.openconnect.android
 
 import android.app.Application
 import android.content.Context
@@ -7,29 +7,29 @@ import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.agmente.android.acp.AcpTransport
-import com.agmente.android.acp.LocalTerminalManager
-import com.agmente.android.acp.asRequestKey
-import com.agmente.android.acp.contentOrNull
-import com.agmente.android.acp.jsonArrayOrNull
-import com.agmente.android.acp.jsonObjectOrNull
-import com.agmente.android.codex.CodexApprovalRequest
-import com.agmente.android.codex.CodexPermissionPreset
-import com.agmente.android.codex.CodexThreadResume
-import com.agmente.android.codex.CodexTransport
-import com.agmente.android.codex.RemoteSessionSummary
-import com.agmente.android.codex.ServerMode
-import com.agmente.android.codex.TranscriptEntry
-import com.agmente.android.codex.TranscriptRole
-import com.agmente.android.codex.parseCodexApprovalRequest
-import com.agmente.android.codex.parseCodexThreadList
-import com.agmente.android.codex.parseCodexThreadResume
-import com.agmente.android.codex.parseCodexThreadStart
-import com.agmente.android.codex.parseCodexTranscriptEntry
-import com.agmente.android.weclaw.BridgeHttpException
-import com.agmente.android.weclaw.ChatCompletionRequest
-import com.agmente.android.weclaw.ChatCompletionResult
-import com.agmente.android.weclaw.WeclawBridgeServer
+import com.openconnect.android.acp.AcpTransport
+import com.openconnect.android.acp.LocalTerminalManager
+import com.openconnect.android.acp.asRequestKey
+import com.openconnect.android.acp.contentOrNull
+import com.openconnect.android.acp.jsonArrayOrNull
+import com.openconnect.android.acp.jsonObjectOrNull
+import com.openconnect.android.codex.CodexApprovalRequest
+import com.openconnect.android.codex.CodexPermissionPreset
+import com.openconnect.android.codex.CodexThreadResume
+import com.openconnect.android.codex.CodexTransport
+import com.openconnect.android.codex.RemoteSessionSummary
+import com.openconnect.android.codex.ServerMode
+import com.openconnect.android.codex.TranscriptEntry
+import com.openconnect.android.codex.TranscriptRole
+import com.openconnect.android.codex.parseCodexApprovalRequest
+import com.openconnect.android.codex.parseCodexThreadList
+import com.openconnect.android.codex.parseCodexThreadResume
+import com.openconnect.android.codex.parseCodexThreadStart
+import com.openconnect.android.codex.parseCodexTranscriptEntry
+import com.openconnect.android.weclaw.BridgeHttpException
+import com.openconnect.android.weclaw.ChatCompletionRequest
+import com.openconnect.android.weclaw.ChatCompletionResult
+import com.openconnect.android.weclaw.WeclawBridgeServer
 import android.net.Uri
 import android.util.Log
 import java.net.URLDecoder
@@ -111,11 +111,11 @@ class AcpViewModel(
     application: Application,
 ) : AndroidViewModel(application), AcpTransport.Listener, CodexTransport.Listener {
     companion object {
-        private const val DEBUG_TAG = "AgmenteDebug"
+        private const val DEBUG_TAG = "OpenConnectDebug"
         private const val LOGCAT_CHUNK_SIZE = 3500
         private const val LOGCAT_MAX_TOTAL = 12000
         private const val UI_LOG_BODY_MAX = 4000
-        private const val PREFS_NAME = "agmente_remote_state"
+        private const val PREFS_NAME = "openconnect_remote_state"
         private const val KEY_SERVER_MODE = "server_mode"
         private const val KEY_ENDPOINT = "endpoint"
         private const val KEY_BEARER_TOKEN = "bearer_token"
@@ -843,8 +843,8 @@ class AcpViewModel(
             addLocalLog("扫码", "二维码内容不是有效链接。", LogKind.Error)
             return
         }
-        if (!uri.scheme.equals("agmente", ignoreCase = true)) {
-            addLocalLog("扫码", "当前仅支持扫描 Agmente 配对二维码。", LogKind.Error)
+        if (!uri.scheme.equals("openconnect", ignoreCase = true)) {
+            addLocalLog("扫码", "当前仅支持扫描 OpenConnect 配对二维码。", LogKind.Error)
             return
         }
 
@@ -1418,8 +1418,8 @@ class AcpViewModel(
                 put("terminal", true)
             }
             putJsonObject("clientInfo") {
-                put("name", "agmente-android")
-                put("title", "Agmente Android")
+                put("name", "openconnect-android")
+                put("title", "OpenConnect Android")
                 put("version", BuildConfig.VERSION_NAME)
             }
         }
@@ -1427,8 +1427,8 @@ class AcpViewModel(
     private fun buildCodexInitializeParams(): JsonObject =
         buildJsonObject {
             putJsonObject("clientInfo") {
-                put("name", "agmente-android")
-                put("title", "Agmente Android")
+                put("name", "openconnect-android")
+                put("title", "OpenConnect Android")
                 put("version", BuildConfig.VERSION_NAME)
             }
         }
@@ -1832,7 +1832,7 @@ class AcpViewModel(
         val title = notificationThreadTitle(summary, threadId)
         val description = summary?.cwd?.takeIf { it.isNotBlank() }
             ?: string(R.string.notification_thread_completed_default_description)
-        AgmenteNotifications.notifyThreadCompleted(
+        OpenConnectNotifications.notifyThreadCompleted(
             threadId = threadId,
             threadTitle = title,
             description = description,
@@ -1845,7 +1845,7 @@ class AcpViewModel(
     ) {
         val summary = _uiState.value.sessionSummaries.firstOrNull { it.id == threadId }
         val title = notificationThreadTitle(summary, threadId)
-        AgmenteNotifications.notifyThreadFailed(
+        OpenConnectNotifications.notifyThreadFailed(
             threadId = threadId,
             threadTitle = title,
             description = errorMessage,
@@ -1942,7 +1942,7 @@ class AcpViewModel(
             )
         }
         return ChatCompletionResult(
-            model = request.model?.takeIf { it.isNotBlank() } ?: "agmente-acp",
+            model = request.model?.takeIf { it.isNotBlank() } ?: "openconnect-acp",
             content = outputText,
             stopReason = result.stopReason,
         )

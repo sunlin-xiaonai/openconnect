@@ -1,8 +1,8 @@
-package com.agmente.android
+package com.openconnect.android
 
 import android.app.Application
 
-class AgmenteApplication : Application() {
+class OpenConnectApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         AppLanguageManager.applyStored(this)

@@ -1,4 +1,4 @@
-package com.agmente.android.ui.theme
+package com.openconnect.android.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

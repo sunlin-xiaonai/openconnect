@@ -13,13 +13,13 @@ ADB_SERIAL=""
 usage() {
   cat <<'EOF'
 用法：
-  scripts/agmente_release_bundle.sh [选项]
+  scripts/openconnect_release_bundle.sh [选项]
 
 默认行为：
   - 构建可安装的 debug APK
   - 输出到 dist/
   - 生成 SHA256SUMS.txt
-  - 复制一份中文快速上手文档到 dist/
+  - 复制中英文快速上手文档到 dist/
 
 选项：
   --build-type debug|release   默认 debug
@@ -37,7 +37,7 @@ EOF
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
-    printf '[agmente-release] 错误：缺少命令：%s\n' "$1" >&2
+    printf '[openconnect-release] 错误：缺少命令：%s\n' "$1" >&2
     exit 1
   }
 }
@@ -98,7 +98,7 @@ parse_args() {
         exit 0
         ;;
       *)
-        printf '[agmente-release] 错误：未知参数：%s\n' "$1" >&2
+        printf '[openconnect-release] 错误：未知参数：%s\n' "$1" >&2
         usage >&2
         exit 1
         ;;
@@ -109,7 +109,7 @@ parse_args() {
     debug|release)
       ;;
     *)
-      printf '[agmente-release] 错误：--build-type 只能是 debug 或 release\n' >&2
+      printf '[openconnect-release] 错误：--build-type 只能是 debug 或 release\n' >&2
       exit 1
       ;;
   esac
@@ -136,25 +136,25 @@ main() {
   mkdir -p "${DIST_DIR}"
 
   if [[ "${CLEAN_FIRST}" == "1" ]]; then
-    printf '[agmente-release] 执行清理构建\n'
+    printf '[openconnect-release] 执行清理构建\n'
     (cd "${PROJECT_ROOT}" && ./gradlew clean)
   fi
 
   if [[ "${BUILD_TYPE}" == "debug" ]]; then
     gradle_task=":app:assembleDebug"
     source_apk="${PROJECT_ROOT}/app/build/outputs/apk/debug/app-debug.apk"
-    artifact_name="agmente-android-v${version}-debug.apk"
+    artifact_name="openconnect-android-v${version}-debug.apk"
   else
     gradle_task=":app:assembleRelease"
     source_apk="${PROJECT_ROOT}/app/build/outputs/apk/release/app-release-unsigned.apk"
-    artifact_name="agmente-android-v${version}-release-unsigned.apk"
+    artifact_name="openconnect-android-v${version}-release-unsigned.apk"
   fi
 
-  printf '[agmente-release] 开始构建 %s（versionName=%s, versionCode=%s）\n' "${BUILD_TYPE}" "${version}" "${code}"
+  printf '[openconnect-release] 开始构建 %s（versionName=%s, versionCode=%s）\n' "${BUILD_TYPE}" "${version}" "${code}"
   (cd "${PROJECT_ROOT}" && ./gradlew "${gradle_task}")
 
   [[ -f "${source_apk}" ]] || {
-    printf '[agmente-release] 错误：未找到构建产物：%s\n' "${source_apk}" >&2
+    printf '[openconnect-release] 错误：未找到构建产物：%s\n' "${source_apk}" >&2
     exit 1
   }
 
@@ -166,33 +166,35 @@ main() {
     shasum -a 256 "${artifact_name}" >SHA256SUMS.txt
   )
 
+  cp "${PROJECT_ROOT}/docs/android-release-and-cloudflare.md" "${DIST_DIR}/QUICKSTART.md"
   cp "${PROJECT_ROOT}/docs/android-release-and-cloudflare-zh.md" "${DIST_DIR}/QUICKSTART.zh-CN.md"
   notes_file="$(release_notes_file "${version}" || true)"
   if [[ -n "${notes_file}" ]]; then
     cp "${notes_file}" "${DIST_DIR}/RELEASE_NOTES.md"
   fi
 
-  printf '[agmente-release] 已生成：%s\n' "${artifact_path}"
-  printf '[agmente-release] 校验文件：%s\n' "${DIST_DIR}/SHA256SUMS.txt"
-  printf '[agmente-release] 快速上手：%s\n' "${DIST_DIR}/QUICKSTART.zh-CN.md"
+  printf '[openconnect-release] 已生成：%s\n' "${artifact_path}"
+  printf '[openconnect-release] 校验文件：%s\n' "${DIST_DIR}/SHA256SUMS.txt"
+  printf '[openconnect-release] 快速上手（EN）：%s\n' "${DIST_DIR}/QUICKSTART.md"
+  printf '[openconnect-release] 快速上手：%s\n' "${DIST_DIR}/QUICKSTART.zh-CN.md"
 
   if [[ "${BUILD_TYPE}" == "release" ]]; then
-    printf '[agmente-release] 注意：当前 release 产物通常是 unsigned APK，需要你后续自行签名后再分发。\n'
+    printf '[openconnect-release] 注意：当前 release 产物通常是 unsigned APK，需要你后续自行签名后再分发。\n'
   else
-    printf '[agmente-release] 说明：当前输出的是可直接安装的 debug APK，适合 GitHub Release 分发测试。\n'
+    printf '[openconnect-release] 说明：当前输出的是可直接安装的 debug APK，适合 GitHub Release 分发测试。\n'
   fi
 
   if [[ "${INSTALL_TO_DEVICE}" == "1" ]]; then
     require_cmd adb
     if [[ "$(connected_device_count)" -eq 0 ]]; then
-      printf '[agmente-release] 错误：未检测到已连接的 Android 设备\n' >&2
+      printf '[openconnect-release] 错误：未检测到已连接的 Android 设备\n' >&2
       exit 1
     fi
     if [[ "${BUILD_TYPE}" != "debug" ]]; then
-      printf '[agmente-release] 错误：release unsigned APK 不能直接安装，请改用默认 debug 构建或先自行签名。\n' >&2
+      printf '[openconnect-release] 错误：release unsigned APK 不能直接安装，请改用默认 debug 构建或先自行签名。\n' >&2
       exit 1
     fi
-    printf '[agmente-release] 安装到手机中\n'
+    printf '[openconnect-release] 安装到手机中\n'
     if [[ -n "${ADB_SERIAL}" ]]; then
       adb -s "${ADB_SERIAL}" install -r "${artifact_path}"
     else
@@ -204,12 +206,12 @@ main() {
 
 下一步：
 1. 把 ${artifact_name} 和 SHA256SUMS.txt 上传到 GitHub Release
-2. 把 QUICKSTART.zh-CN.md 作为发布说明附件或文档链接
+2. 把 QUICKSTART.md / QUICKSTART.zh-CN.md 作为发布说明附件或文档链接
 3. 引导用户先执行：
-   bash scripts/agmente_pair_up.sh doctor
-   bash scripts/agmente_pair_up.sh up --quick-tunnel --cwd "/path/to/project"
+   bash scripts/openconnect_pair_up.sh doctor
+   bash scripts/openconnect_pair_up.sh up --quick-tunnel --cwd "/path/to/project"
 4. 如果用户要固定域名，再执行：
-   bash scripts/agmente_pair_up.sh doctor --named-tunnel agmente-codex --hostname codex.example.com
+   bash scripts/openconnect_pair_up.sh doctor --named-tunnel openconnect-codex --hostname codex.example.com
 EOF
 }
 

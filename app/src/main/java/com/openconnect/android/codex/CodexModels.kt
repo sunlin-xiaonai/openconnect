@@ -1,11 +1,11 @@
-package com.agmente.android.codex
+package com.openconnect.android.codex
 
 import android.content.Context
 import androidx.annotation.StringRes
-import com.agmente.android.R
-import com.agmente.android.acp.contentOrNull
-import com.agmente.android.acp.jsonArrayOrNull
-import com.agmente.android.acp.jsonObjectOrNull
+import com.openconnect.android.R
+import com.openconnect.android.acp.contentOrNull
+import com.openconnect.android.acp.jsonArrayOrNull
+import com.openconnect.android.acp.jsonObjectOrNull
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

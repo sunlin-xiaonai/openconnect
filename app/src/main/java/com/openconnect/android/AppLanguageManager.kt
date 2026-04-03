@@ -1,4 +1,4 @@
-package com.agmente.android
+package com.openconnect.android
 
 import android.content.Context
 import androidx.annotation.StringRes
@@ -36,7 +36,7 @@ enum class AppLanguage(
 fun AppLanguage.label(context: Context): String = context.getString(labelResId)
 
 object AppLanguageManager {
-    private const val PREFS_NAME = "agmente_app_settings"
+    private const val PREFS_NAME = "openconnect_app_settings"
     private const val KEY_APP_LANGUAGE = "app_language"
 
     fun load(context: Context): AppLanguage {

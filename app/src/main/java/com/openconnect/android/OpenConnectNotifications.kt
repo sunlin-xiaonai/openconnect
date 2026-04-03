@@ -1,4 +1,4 @@
-package com.agmente.android
+package com.openconnect.android
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -18,8 +18,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
-object AgmenteNotifications {
-    private const val CHANNEL_ID = "agmente_thread_updates_v4"
+object OpenConnectNotifications {
+    private const val CHANNEL_ID = "openconnect_thread_updates_v1"
     private const val FALLBACK_ALERT_DEBOUNCE_MS = 1800L
     private val VIBRATION_PATTERN = longArrayOf(0, 180, 120, 260)
 
@@ -144,7 +144,7 @@ object AgmenteNotifications {
         val openIntent = Intent(
             Intent.ACTION_VIEW,
             Uri.Builder()
-                .scheme("agmente")
+                .scheme("openconnect")
                 .authority("task")
                 .appendQueryParameter("threadId", threadId)
                 .build(),

@@ -29,5 +29,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AgmenteAndroid"
+rootProject.name = "OpenConnectAndroid"
 include(":app")
