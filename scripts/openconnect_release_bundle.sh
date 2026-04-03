@@ -209,7 +209,7 @@ main() {
 2. 把 QUICKSTART.md / QUICKSTART.zh-CN.md 作为发布说明附件或文档链接
 3. 引导用户先执行：
    bash scripts/openconnect_pair_up.sh doctor
-   bash scripts/openconnect_pair_up.sh up --quick-tunnel --cwd "/path/to/project"
+   bash scripts/openconnect_pair_up.sh up --cwd "/path/to/project"
 4. 如果用户要固定域名，再执行：
    bash scripts/openconnect_pair_up.sh doctor --named-tunnel openconnect-codex --hostname codex.example.com
 EOF

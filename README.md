@@ -139,4 +139,4 @@ sdk.dir=/path/to/Android/sdk
 
 - [English quickstart](docs/android-release-and-cloudflare.md)
 - [中文快速上手](docs/android-release-and-cloudflare-zh.md)
-- [Release notes v0.2.1](docs/release-notes-v0.2.1.md)
+- [Release notes v0.2.2](docs/release-notes-v0.2.2.md)
