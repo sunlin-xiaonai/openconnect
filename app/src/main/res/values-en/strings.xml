@@ -19,6 +19,7 @@
     <string name="action_refresh">Refresh</string>
     <string name="action_new">New</string>
     <string name="action_open">Open</string>
+    <string name="action_close">Close</string>
     <string name="action_continue_viewing">Continue</string>
     <string name="action_show_more">Show more</string>
     <string name="action_send">Send</string>
@@ -46,6 +47,19 @@
 
     <string name="label_streaming">Streaming</string>
     <string name="label_waiting_output">Waiting for output…</string>
+    <string name="transcript_folded_tool_summary">Collapsed %1$d lines of execution output</string>
+    <string name="transcript_folded_system_summary">Collapsed %1$d lines of system content</string>
+    <string name="transcript_folded_code_summary">Collapsed %1$d lines of %2$s</string>
+    <string name="transcript_code_kind_code">code</string>
+    <string name="transcript_code_kind_command">command</string>
+    <string name="transcript_code_kind_diff">diff</string>
+    <string name="transcript_process_kind_tool">tool</string>
+    <string name="transcript_process_kind_system">system</string>
+    <string name="transcript_process_summary">Execution %1$d steps</string>
+    <string name="transcript_process_command_count">%1$d commands</string>
+    <string name="transcript_process_file_count">%1$d file changes</string>
+    <string name="transcript_process_other_count">%1$d records</string>
+    <string name="transcript_process_step_meta">%1$s · %2$d lines</string>
     <string name="label_stop_reason">stopReason: %1$s</string>
     <string name="label_agent">Agent: %1$s</string>
     <string name="label_prompt_source">Prompt source: %1$s</string>
@@ -124,6 +138,13 @@
     <string name="new_thread_upcoming_directory_title">Directory to use</string>
 
     <string name="settings_title">Settings</string>
+    <string name="settings_page_subtitle">Styled as grouped Telegram-like lists, with common options collapsed by default.</string>
+    <string name="settings_preferences_title">Preferences</string>
+    <string name="settings_preferences_description">Keep the options you change most often in one place, with less scrolling.</string>
+    <string name="settings_auth_title">Authentication</string>
+    <string name="settings_auth_description">Only fill these in when the server requires auth or Cloudflare Access.</string>
+    <string name="settings_manual_hidden_hint">Connection parameters stay collapsed by default. Expand to edit them.</string>
+    <string name="settings_manual_section_hint">Manual configuration is expanded, so you can edit the connection parameters directly.</string>
     <string name="language_title">Language</string>
     <string name="language_description">Change the app display language. It takes effect immediately.</string>
     <string name="language_option_system">Follow system</string>

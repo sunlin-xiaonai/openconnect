@@ -19,6 +19,7 @@
     <string name="action_refresh">刷新</string>
     <string name="action_new">新建</string>
     <string name="action_open">打开</string>
+    <string name="action_close">关闭</string>
     <string name="action_continue_viewing">继续查看</string>
     <string name="action_show_more">显示更多</string>
     <string name="action_send">发送</string>
@@ -46,6 +47,19 @@
 
     <string name="label_streaming">流式中</string>
     <string name="label_waiting_output">正在等待输出…</string>
+    <string name="transcript_folded_tool_summary">已折叠 %1$d 行执行过程</string>
+    <string name="transcript_folded_system_summary">已折叠 %1$d 行系统内容</string>
+    <string name="transcript_folded_code_summary">已折叠 %1$d 行%2$s</string>
+    <string name="transcript_code_kind_code">代码</string>
+    <string name="transcript_code_kind_command">命令</string>
+    <string name="transcript_code_kind_diff">变更</string>
+    <string name="transcript_process_kind_tool">工具</string>
+    <string name="transcript_process_kind_system">系统</string>
+    <string name="transcript_process_summary">执行过程 %1$d 步</string>
+    <string name="transcript_process_command_count">%1$d 条命令</string>
+    <string name="transcript_process_file_count">%1$d 次改动</string>
+    <string name="transcript_process_other_count">%1$d 条记录</string>
+    <string name="transcript_process_step_meta">%1$s · %2$d 行</string>
     <string name="label_stop_reason">stopReason: %1$s</string>
     <string name="label_agent">Agent: %1$s</string>
     <string name="label_prompt_source">当前 Prompt 来源: %1$s</string>
@@ -124,6 +138,13 @@
     <string name="new_thread_upcoming_directory_title">即将使用的目录</string>
 
     <string name="settings_title">设置</string>
+    <string name="settings_page_subtitle">参照 Telegram 的分组列表样式，常用选项默认收起。</string>
+    <string name="settings_preferences_title">使用偏好</string>
+    <string name="settings_preferences_description">把最常改的选项收在一起，页面会更短也更顺手。</string>
+    <string name="settings_auth_title">认证参数</string>
+    <string name="settings_auth_description">只有服务端启用鉴权或 Cloudflare Access 时才需要填写。</string>
+    <string name="settings_manual_hidden_hint">连接参数默认收起，点开后再编辑。</string>
+    <string name="settings_manual_section_hint">手动配置已经展开，可以直接调整连接参数。</string>
     <string name="language_title">语言</string>
     <string name="language_description">切换应用显示语言，修改后立即生效。</string>
     <string name="language_option_system">跟随系统</string>
