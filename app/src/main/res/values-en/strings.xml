@@ -74,7 +74,7 @@
     <string name="label_prompt_source_pair_qr">Pairing QR</string>
     <string name="label_prompt_source_deep_link">Deep link</string>
 
-    <string name="tab_threads">Threads</string>
+    <string name="tab_threads">Projects</string>
     <string name="tab_logs">Logs</string>
     <string name="nav_mascot_running">Running</string>
     <string name="nav_mascot_resting">Resting</string>
@@ -121,21 +121,35 @@
     <string name="thread_transcript_history_title">Transcript</string>
     <string name="thread_transcript_history_empty">No thread selected yet</string>
     <string name="thread_transcript_history_description">User prompts, assistant replies, command runs, file changes, and streaming updates appear here.</string>
+    <string name="project_home_title">Organized by project</string>
+    <string name="project_home_description">Multiple entries in the same project stay grouped together. Open a project first, then continue in a specific entry or create a new session inside that project.</string>
+    <string name="project_home_summary">Projects: %1$d, entries: %2$d</string>
+    <string name="project_home_current_directory">Current default project: %1$s</string>
+    <string name="project_empty_title">No projects yet</string>
+    <string name="project_empty_description">Refresh existing entries first, or pick a project to create a new session.</string>
+    <string name="project_card_default_path">Using the server default directory</string>
+    <string name="project_card_current">Current project</string>
+    <string name="project_card_thread_count">%1$d entries</string>
+    <string name="project_card_running_count">%1$d running</string>
+    <string name="project_items_title">Project entries</string>
+    <string name="project_items_description">Open any entry here to continue chatting with its existing context.</string>
+    <string name="project_detail_empty_title">No sessions in this project yet</string>
+    <string name="project_detail_empty_description">Create a session in this project first, then start chatting.</string>
 
     <string name="logs_title">Event logs</string>
     <string name="logs_description">Only debug logs live here. They are hidden from the home screen to avoid noise during daily use.</string>
     <string name="logs_empty_title">No logs yet</string>
     <string name="logs_empty_description">Logs will appear here after you connect, open a thread, or send a message.</string>
 
-    <string name="new_thread_title">New thread</string>
-    <string name="new_thread_subtitle">Choose a project directory before creating the thread</string>
+    <string name="new_thread_title">Choose a project</string>
+    <string name="new_thread_subtitle">Create a session inside this project</string>
     <string name="new_thread_choose_directory_title">Choose a project directory</string>
-    <string name="new_thread_choose_directory_description">Pick a recent project directly, or type a new code path manually. After creation, the thread will run in that directory.</string>
+    <string name="new_thread_choose_directory_description">Pick a recent project directly, or type a new code path manually. After creation, a new session will start in that project.</string>
     <string name="new_thread_recent_projects">Recent projects</string>
     <string name="new_thread_manual_path_title">Enter a path manually</string>
     <string name="field_project_directory">Project directory</string>
     <string name="field_project_directory_hint">For example: /Users/you/code/project-a. New paths are allowed too, but the desktop side must be able to access them.</string>
-    <string name="new_thread_upcoming_directory_title">Directory to use</string>
+    <string name="new_thread_upcoming_directory_title">Directory for the new session</string>
 
     <string name="settings_title">Settings</string>
     <string name="settings_page_subtitle">Styled as grouped Telegram-like lists, with common options collapsed by default.</string>

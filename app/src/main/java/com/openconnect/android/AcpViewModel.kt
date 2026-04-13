@@ -1862,8 +1862,8 @@ class AcpViewModel(
             ?.substringAfterLast('/')
             ?.substringAfterLast('\\')
             ?.takeIf { it.isNotBlank() }
-        return projectName
-            ?: summary?.title?.trim()?.takeIf { it.isNotBlank() }
+        return summary?.title?.trim()?.takeIf { it.isNotBlank() }
+            ?: projectName
             ?: string(R.string.label_thread_short, threadId.take(8))
     }
 

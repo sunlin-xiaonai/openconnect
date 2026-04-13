@@ -4,9 +4,11 @@
 - Native Android ACP client built with Kotlin and Jetpack Compose.
 - Handles ACP transport, basic session flow, and client-side terminal execution for `terminal/*` requests.
 - Receives WeChat-friendly deep links through the activity intent layer.
+- Codex thread browsing is organized by project in the UI; each project can contain multiple entries/sessions.
 
 ## Ownership Boundaries
 - `app/src/main/java/com/openconnect/android/` contains app state, screens, and Android entrypoints.
+- `OpenConnectApp.kt` owns the project-list -> project-detail -> thread-detail navigation for Codex mode.
 - `app/src/main/java/com/openconnect/android/AppLanguageManager.kt` and `OpenConnectApplication.kt` own app-level locale persistence and startup locale restoration.
 - `app/src/main/java/com/openconnect/android/acp/` owns JSON-RPC transport and local terminal execution.
 - `docs/wechat-android-acp.md` documents the WeChat entry architecture and platform limits.

@@ -179,6 +179,15 @@ private enum class ThreadScope {
     CurrentProject,
 }
 
+private data class ProjectThreadGroup(
+    val key: String,
+    val cwd: String?,
+    val displayName: String,
+    val updatedAtEpochSeconds: Long?,
+    val threads: List<RemoteSessionSummary>,
+    val isCurrentProject: Boolean,
+)
+
 private enum class PixelMascotMode {
     Running,
     Resting,
@@ -213,14 +222,62 @@ private fun projectNameFromPath(path: String?): String? {
         .takeIf { it.isNotBlank() }
 }
 
-private fun threadDisplayTitle(
-    cwd: String?,
+private const val DEFAULT_PROJECT_GROUP_KEY = "__default_project__"
+private const val PROJECT_LIST_PAGE_SIZE = 6
+
+private fun projectGroupKey(path: String?): String =
+    normalizedProjectPath(path) ?: DEFAULT_PROJECT_GROUP_KEY
+
+private fun buildProjectThreadGroups(
+    sessionSummaries: List<RemoteSessionSummary>,
+    currentProjectPath: String?,
+    defaultDirectoryLabel: String,
+): List<ProjectThreadGroup> {
+    val grouped = sessionSummaries
+        .groupBy { summary -> projectGroupKey(summary.cwd) }
+        .map { (key, summaries) ->
+            val sortedThreads = summaries.sortedByDescending { it.updatedAtEpochSeconds ?: 0L }
+            val normalizedCwd = normalizedProjectPath(sortedThreads.firstNotNullOfOrNull { it.cwd })
+            ProjectThreadGroup(
+                key = key,
+                cwd = normalizedCwd,
+                displayName = projectNameFromPath(normalizedCwd) ?: defaultDirectoryLabel,
+                updatedAtEpochSeconds = sortedThreads.mapNotNull { it.updatedAtEpochSeconds }.maxOrNull(),
+                threads = sortedThreads,
+                isCurrentProject = normalizedCwd != null && normalizedCwd == currentProjectPath,
+            )
+        }
+        .toMutableList()
+
+    if (
+        currentProjectPath != null &&
+        grouped.none { group -> group.cwd == currentProjectPath }
+    ) {
+        grouped += ProjectThreadGroup(
+            key = projectGroupKey(currentProjectPath),
+            cwd = currentProjectPath,
+            displayName = projectNameFromPath(currentProjectPath) ?: currentProjectPath,
+            updatedAtEpochSeconds = null,
+            threads = emptyList(),
+            isCurrentProject = true,
+        )
+    }
+
+    return grouped.sortedWith(
+        compareByDescending<ProjectThreadGroup> { it.isCurrentProject }
+            .thenByDescending { it.updatedAtEpochSeconds ?: Long.MIN_VALUE }
+            .thenBy { it.displayName.lowercase(Locale.getDefault()) }
+    )
+}
+
+private fun threadConversationTitle(
     fallbackTitle: String,
     unnamedTitle: String,
+    threadId: String,
 ): String =
-    projectNameFromPath(cwd)
-        ?: fallbackTitle.trim().takeIf { it.isNotBlank() }
-        ?: unnamedTitle
+    fallbackTitle.trim()
+        .takeIf { it.isNotBlank() && it != unnamedTitle }
+        ?: "$unnamedTitle ${threadId.take(8)}"
 
 private fun threadPreviewLabel(
     rawTitle: String,
@@ -450,19 +507,36 @@ fun OpenConnectApp(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val defaultDirectoryLabel = context.getString(R.string.label_service_default_directory)
+    val currentProjectPath = normalizedProjectPath(uiState.workingDirectory)
     var showManualConfig by rememberSaveable { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(HomeTab.Threads) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var newThreadOpen by rememberSaveable { mutableStateOf(false) }
+    var selectedProjectKey by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedThreadId by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedThreadTitle by rememberSaveable { mutableStateOf("") }
     var pendingOpenCreatedThread by rememberSaveable { mutableStateOf(false) }
     var pendingCreatedFromSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingCreatedProjectKey by rememberSaveable { mutableStateOf<String?>(null) }
     val isCodexMode = uiState.serverMode == ServerMode.CodexAppServer
+    val projectGroups = remember(
+        uiState.sessionSummaries,
+        currentProjectPath,
+        defaultDirectoryLabel,
+    ) {
+        buildProjectThreadGroups(
+            sessionSummaries = uiState.sessionSummaries,
+            currentProjectPath = currentProjectPath,
+            defaultDirectoryLabel = defaultDirectoryLabel,
+        )
+    }
+    val selectedProjectGroup = projectGroups.firstOrNull { it.key == selectedProjectKey }
     val selectedThreadSummary = uiState.sessionSummaries.firstOrNull { it.id == selectedThreadId }
     val canNavigateBack =
         settingsOpen ||
             (isCodexMode && newThreadOpen) ||
+            (isCodexMode && selectedProjectKey != null) ||
             (isCodexMode && selectedThreadId != null) ||
             selectedTab != HomeTab.Threads
 
@@ -475,6 +549,7 @@ fun OpenConnectApp(
                 pendingOpenCreatedThread = false
                 pendingCreatedFromSessionId = null
             }
+            isCodexMode && selectedProjectKey != null -> selectedProjectKey = null
             selectedTab != HomeTab.Threads -> selectedTab = HomeTab.Threads
         }
     }
@@ -491,10 +566,23 @@ fun OpenConnectApp(
         }
     }
 
+    LaunchedEffect(selectedProjectKey, projectGroups) {
+        if (selectedProjectKey != null && selectedProjectGroup == null) {
+            selectedProjectKey = null
+        }
+    }
+
+    LaunchedEffect(selectedThreadSummary?.cwd, selectedThreadId, selectedProjectKey) {
+        if (selectedThreadId != null && selectedProjectKey == null && selectedThreadSummary != null) {
+            selectedProjectKey = projectGroupKey(selectedThreadSummary.cwd)
+        }
+    }
+
     LaunchedEffect(
         uiState.sessionId,
         pendingOpenCreatedThread,
         pendingCreatedFromSessionId,
+        pendingCreatedProjectKey,
         uiState.sessionSummaries,
     ) {
         val currentSessionId = uiState.sessionId
@@ -508,8 +596,10 @@ fun OpenConnectApp(
                 .firstOrNull { it.id == currentSessionId }
                 ?.title
                 .orEmpty()
+            selectedProjectKey = pendingCreatedProjectKey
             pendingOpenCreatedThread = false
             pendingCreatedFromSessionId = null
+            pendingCreatedProjectKey = null
         }
     }
 
@@ -524,6 +614,10 @@ fun OpenConnectApp(
         selectedTab = HomeTab.Threads
         pendingOpenCreatedThread = false
         pendingCreatedFromSessionId = null
+        pendingCreatedProjectKey = null
+        selectedProjectKey = uiState.sessionSummaries
+            .firstOrNull { it.id == targetThreadId }
+            ?.let { summary -> projectGroupKey(summary.cwd) }
         selectedThreadId = targetThreadId
         selectedThreadTitle = uiState.sessionSummaries
             .firstOrNull { it.id == targetThreadId }
@@ -548,6 +642,7 @@ fun OpenConnectApp(
                 selectedThreadId = null
                 pendingOpenCreatedThread = false
                 pendingCreatedFromSessionId = null
+                pendingCreatedProjectKey = null
             },
             onRefresh = {
                 selectedThreadId?.let(viewModel::openSession)
@@ -561,17 +656,17 @@ fun OpenConnectApp(
     }
 
     if (settingsOpen) {
-                SettingsScreen(
-                    uiState = uiState,
-                    notificationsGranted = notificationsGranted,
-                    showManualConfig = showManualConfig,
-                    onBack = { settingsOpen = false },
-                    onScanPairCode = onScanPairCode,
-                    onRequestNotificationPermission = onRequestNotificationPermission,
-                    onAppLanguageChange = viewModel::updateAppLanguage,
-                    onToggleManualConfig = { showManualConfig = !showManualConfig },
-                    onServerModeChange = viewModel::updateServerMode,
-                    onEndpointChange = viewModel::updateEndpoint,
+        SettingsScreen(
+            uiState = uiState,
+            notificationsGranted = notificationsGranted,
+            showManualConfig = showManualConfig,
+            onBack = { settingsOpen = false },
+            onScanPairCode = onScanPairCode,
+            onRequestNotificationPermission = onRequestNotificationPermission,
+            onAppLanguageChange = viewModel::updateAppLanguage,
+            onToggleManualConfig = { showManualConfig = !showManualConfig },
+            onServerModeChange = viewModel::updateServerMode,
+            onEndpointChange = viewModel::updateEndpoint,
             onBearerTokenChange = viewModel::updateBearerToken,
             onCfAccessClientIdChange = viewModel::updateCfAccessClientId,
             onCfAccessClientSecretChange = viewModel::updateCfAccessClientSecret,
@@ -596,10 +691,12 @@ fun OpenConnectApp(
             onBack = { newThreadOpen = false },
             onCreateThread = { directory ->
                 newThreadOpen = false
+                selectedProjectKey = directory?.let(::projectGroupKey) ?: DEFAULT_PROJECT_GROUP_KEY
                 selectedThreadId = null
                 selectedThreadTitle = ""
                 pendingOpenCreatedThread = true
                 pendingCreatedFromSessionId = uiState.sessionId
+                pendingCreatedProjectKey = directory?.let(::projectGroupKey) ?: DEFAULT_PROJECT_GROUP_KEY
                 viewModel.updateWorkingDirectory(directory.orEmpty())
                 viewModel.createSession()
             },
@@ -607,19 +704,47 @@ fun OpenConnectApp(
         return
     }
 
+    if (isCodexMode && selectedProjectGroup != null) {
+        ProjectDetailScreen(
+            group = selectedProjectGroup,
+            selectedThreadId = uiState.sessionId,
+            lastCompletedThreadId = uiState.lastCompletedThreadId,
+            onBack = { selectedProjectKey = null },
+            onRefresh = viewModel::refreshSessions,
+            onCreateSession = { directory ->
+                selectedThreadId = null
+                selectedThreadTitle = ""
+                pendingOpenCreatedThread = true
+                pendingCreatedFromSessionId = uiState.sessionId
+                pendingCreatedProjectKey = selectedProjectGroup.key
+                viewModel.updateWorkingDirectory(directory.orEmpty())
+                viewModel.createSession()
+            },
+            onOpenSession = { summary ->
+                pendingOpenCreatedThread = false
+                pendingCreatedFromSessionId = null
+                pendingCreatedProjectKey = selectedProjectGroup.key
+                selectedThreadId = summary.id
+                selectedThreadTitle = summary.title
+                viewModel.openSession(summary.id)
+            },
+        )
+        return
+    }
+
     MainHomeScreen(
         uiState = uiState,
+        projectGroups = projectGroups,
         selectedTab = selectedTab,
         onTabSelected = { selectedTab = it },
         onOpenSettings = { settingsOpen = true },
         onRefreshSessions = viewModel::refreshSessions,
         onOpenNewThreadSetup = { newThreadOpen = true },
-        onOpenSession = { summary ->
+        onOpenProject = { group ->
             pendingOpenCreatedThread = false
             pendingCreatedFromSessionId = null
-            selectedThreadId = summary.id
-            selectedThreadTitle = summary.title
-            viewModel.openSession(summary.id)
+            pendingCreatedProjectKey = null
+            selectedProjectKey = group.key
         },
     )
 }
@@ -627,12 +752,13 @@ fun OpenConnectApp(
 @Composable
 private fun MainHomeScreen(
     uiState: AcpUiState,
+    projectGroups: List<ProjectThreadGroup>,
     selectedTab: HomeTab,
     onTabSelected: (HomeTab) -> Unit,
     onOpenSettings: () -> Unit,
     onRefreshSessions: () -> Unit,
     onOpenNewThreadSetup: () -> Unit,
-    onOpenSession: (RemoteSessionSummary) -> Unit,
+    onOpenProject: (ProjectThreadGroup) -> Unit,
 ) {
     AppBackdrop {
         Scaffold(
@@ -640,7 +766,6 @@ private fun MainHomeScreen(
             topBar = {
                 HomeHeaderBar(
                     uiState = uiState,
-                    onRefreshSessions = onRefreshSessions,
                     onOpenSettings = onOpenSettings,
                 )
             },
@@ -658,12 +783,13 @@ private fun MainHomeScreen(
         ) { padding ->
             when (selectedTab) {
                 HomeTab.Threads -> {
-                    ThreadsHomeTab(
+                    ProjectsHomeTab(
                         uiState = uiState,
+                        projectGroups = projectGroups,
                         onOpenSettings = onOpenSettings,
                         onRefreshSessions = onRefreshSessions,
                         onOpenNewThreadSetup = onOpenNewThreadSetup,
-                        onOpenSession = onOpenSession,
+                        onOpenProject = onOpenProject,
                         modifier = Modifier.padding(padding),
                     )
                 }
@@ -682,39 +808,212 @@ private fun MainHomeScreen(
 @Composable
 private fun HomeHeaderBar(
     uiState: AcpUiState,
-    onRefreshSessions: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
             .padding(horizontal = PageHorizontalPadding, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(R.string.app_name),
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.primary,
+        OpenConnectBrandPlate(
+            modifier = Modifier.weight(1f),
+        )
+        TopBarModeBadge(uiState = uiState)
+        ChromeIconButton(
+            icon = Icons.Outlined.MoreVert,
+            contentDescription = stringResource(R.string.action_settings),
+            onClick = onOpenSettings,
+        )
+    }
+}
+
+@Composable
+private fun OpenConnectBrandPlate(
+    modifier: Modifier = Modifier,
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    val tertiary = MaterialTheme.colorScheme.tertiary
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val surface = MaterialTheme.colorScheme.surface
+    val outline = MaterialTheme.colorScheme.outline
+
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = surface.copy(alpha = 0.96f),
+        ),
+        border = BorderStroke(
+            1.dp,
+            outline.copy(alpha = 0.12f),
+        ),
+    ) {
+        Box {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+            ) {
+                val cell = size.height / 10f
+
+                fun pixel(x: Int, y: Int, color: Color) {
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(x * cell, y * cell),
+                        size = Size(cell * 0.68f, cell * 0.68f),
+                        cornerRadius = CornerRadius(cell * 0.12f, cell * 0.12f),
+                    )
+                }
+
+                listOf(
+                    10 to 1,
+                    12 to 2,
+                    11 to 3,
+                    13 to 4,
+                    12 to 6,
+                    9 to 7,
+                ).forEach { (x, y) ->
+                    pixel(
+                        x = x,
+                        y = y,
+                        color = primary.copy(alpha = 0.11f),
+                    )
+                }
+
+                listOf(
+                    8 to 0,
+                    11 to 5,
+                    14 to 3,
+                ).forEach { (x, y) ->
+                    pixel(
+                        x = x,
+                        y = y,
+                        color = tertiary.copy(alpha = 0.14f),
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OpenConnectPixelGlyph()
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(1.dp),
+                ) {
+                    Text(
+                        text = "OPEN",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp,
+                            letterSpacing = 1.8.sp,
+                            lineHeight = 10.sp,
+                        ),
+                        color = primary,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "CONNECT",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            letterSpacing = 1.1.sp,
+                            lineHeight = 12.sp,
+                        ),
+                        color = onSurface,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpenConnectPixelGlyph(
+    modifier: Modifier = Modifier,
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    val tertiary = MaterialTheme.colorScheme.tertiary
+    val primaryContainer = MaterialTheme.colorScheme.primaryContainer
+
+    Box(
+        modifier = modifier
+            .size(34.dp)
+            .background(
+                color = primaryContainer.copy(alpha = 0.92f),
+                shape = RoundedCornerShape(12.dp),
             )
-            ChromeIconButton(
-                icon = Icons.Outlined.Refresh,
-                contentDescription = stringResource(R.string.action_refresh),
-                onClick = onRefreshSessions,
+            .padding(5.dp),
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cols = 7
+            val rows = 7
+            val pixelSize = minOf(size.width / cols, size.height / rows)
+            val offsetX = (size.width - cols * pixelSize) / 2f
+            val offsetY = (size.height - rows * pixelSize) / 2f
+
+            fun pixel(x: Int, y: Int, color: Color) {
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(
+                        x = offsetX + x * pixelSize,
+                        y = offsetY + y * pixelSize,
+                    ),
+                    size = Size(pixelSize * 0.82f, pixelSize * 0.82f),
+                    cornerRadius = CornerRadius(pixelSize * 0.14f, pixelSize * 0.14f),
+                )
+            }
+
+            val primaryPixels = listOf(
+                0 to 1, 1 to 1, 2 to 1,
+                0 to 2,
+                0 to 3,
+                0 to 4, 1 to 4, 2 to 4,
+                3 to 2, 4 to 2,
             )
-            ChromeIconButton(
-                icon = Icons.Outlined.MoreVert,
-                contentDescription = stringResource(R.string.action_settings),
-                onClick = onOpenSettings,
+            val accentPixels = listOf(
+                3 to 2, 4 to 2, 5 to 2,
+                5 to 3,
+                3 to 4, 4 to 4, 5 to 4,
+                2 to 3,
+            )
+
+            primaryPixels.forEach { (x, y) ->
+                pixel(
+                    x = x,
+                    y = y,
+                    color = primary,
+                )
+            }
+            accentPixels.forEach { (x, y) ->
+                pixel(
+                    x = x,
+                    y = y,
+                    color = tertiary,
+                )
+            }
+
+            pixel(
+                x = 6,
+                y = 1,
+                color = primary.copy(alpha = 0.38f),
+            )
+            pixel(
+                x = 1,
+                y = 6,
+                color = tertiary.copy(alpha = 0.32f),
             )
         }
-        TopBarConnectionBadge(uiState = uiState)
     }
 }
 
@@ -1170,38 +1469,15 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPixelMascot(
 }
 
 @Composable
-private fun ThreadsHomeTab(
+private fun ProjectsHomeTab(
     uiState: AcpUiState,
+    projectGroups: List<ProjectThreadGroup>,
     onOpenSettings: () -> Unit,
     onRefreshSessions: () -> Unit,
     onOpenNewThreadSetup: () -> Unit,
-    onOpenSession: (RemoteSessionSummary) -> Unit,
+    onOpenProject: (ProjectThreadGroup) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val currentProjectPath = uiState.workingDirectory.trim().takeIf { it.isNotBlank() }
-    val currentProjectThreads = if (currentProjectPath == null) {
-        emptyList()
-    } else {
-        uiState.sessionSummaries.filter { it.cwd == currentProjectPath }
-    }
-    var selectedScope by rememberSaveable(currentProjectPath) {
-        mutableStateOf(ThreadScope.All)
-    }
-    val filteredThreads = when (selectedScope) {
-        ThreadScope.All -> uiState.sessionSummaries
-        ThreadScope.CurrentProject -> currentProjectThreads
-    }
-    var visibleThreadCount by rememberSaveable(
-        uiState.serverMode,
-        currentProjectPath,
-        selectedScope,
-        filteredThreads.size,
-    ) {
-        mutableStateOf(THREAD_LIST_PAGE_SIZE)
-    }
-    val visibleThreads = filteredThreads.take(visibleThreadCount)
-    val remainingThreadCount = (filteredThreads.size - visibleThreadCount).coerceAtLeast(0)
-
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -1210,16 +1486,14 @@ private fun ThreadsHomeTab(
             end = PageHorizontalPadding,
             bottom = 124.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (uiState.serverMode == ServerMode.CodexAppServer) {
             item {
-                CompactThreadToolbar(
-                    selectedScope = selectedScope,
-                    allCount = uiState.sessionSummaries.size,
-                    currentProjectCount = currentProjectThreads.size,
-                    currentProjectPath = currentProjectPath,
-                    onScopeSelected = { selectedScope = it },
+                ProjectOverviewCard(
+                    uiState = uiState,
+                    projectCount = projectGroups.size,
+                    onRefresh = onRefreshSessions,
                 )
             }
 
@@ -1230,7 +1504,7 @@ private fun ThreadsHomeTab(
                         onOpenSettings = onOpenSettings,
                     )
                 }
-            } else if (uiState.sessionSummaries.isEmpty()) {
+            } else if (projectGroups.isEmpty()) {
                 item {
                     ThreadEmptyCard(
                         onRefreshSessions = onRefreshSessions,
@@ -1238,35 +1512,13 @@ private fun ThreadsHomeTab(
                     )
                 }
             } else {
-                if (visibleThreads.isEmpty()) {
-                    item {
-                        ThreadSectionCard(
-                            title = stringResource(R.string.thread_none_for_project_title),
-                            description = stringResource(R.string.thread_none_for_project_description),
-                        )
-                    }
-                } else {
-                    items(visibleThreads, key = { it.id }) { summary ->
-                        ThreadMiniCard(
-                            summary = summary,
-                            isSelected = summary.id == uiState.sessionId,
-                            isRunning = summary.isRunning,
-                            isRecentlyCompleted = summary.id == uiState.lastCompletedThreadId,
-                            onOpen = { onOpenSession(summary) },
-                        )
-                    }
-                }
-
-                if (remainingThreadCount > 0) {
-                    item {
-                        LoadMoreThreadsCard(
-                            remainingThreadCount = remainingThreadCount,
-                            onLoadMore = {
-                                visibleThreadCount = (visibleThreadCount + THREAD_LIST_PAGE_SIZE)
-                                    .coerceAtMost(filteredThreads.size)
-                            },
-                        )
-                    }
+                items(projectGroups, key = { it.key }) { group ->
+                    ProjectGroupCard(
+                        group = group,
+                        activeThreadId = uiState.sessionId,
+                        lastCompletedThreadId = uiState.lastCompletedThreadId,
+                        onOpen = { onOpenProject(group) },
+                    )
                 }
             }
         } else {
@@ -1287,40 +1539,476 @@ private fun ThreadsHomeTab(
 }
 
 @Composable
-private fun TopBarConnectionBadge(uiState: AcpUiState) {
-    val isReady = uiState.isConnected && uiState.isInitialized
-    val isConnected = uiState.isConnected
-    val containerColor = when {
-        isReady -> MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-        isConnected -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f)
-        else -> MaterialTheme.colorScheme.surface
+private fun ProjectOverviewCard(
+    uiState: AcpUiState,
+    projectCount: Int,
+    onRefresh: () -> Unit,
+) {
+    Card(
+        shape = SectionShape,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.project_home_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = stringResource(R.string.project_home_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ThreadStateBadge(
+                    text = stringResource(
+                        R.string.project_home_summary,
+                        projectCount,
+                        uiState.sessionSummaries.size,
+                    ),
+                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                )
+                if (uiState.pendingApprovals.isNotEmpty()) {
+                    ThreadStateBadge(
+                        text = stringResource(
+                            R.string.overview_threads_pending,
+                            uiState.sessionSummaries.size,
+                            uiState.pendingApprovals.size,
+                        ),
+                        containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
+                    )
+                }
+            }
+            SmallToolbarButton(
+                label = stringResource(R.string.action_refresh),
+                onClick = onRefresh,
+                outlined = true,
+            )
+        }
     }
-    val dotColor = when {
-        isReady -> MaterialTheme.colorScheme.primary
-        isConnected -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.outline
+}
+
+@Composable
+private fun ProjectGroupCard(
+    group: ProjectThreadGroup,
+    activeThreadId: String?,
+    lastCompletedThreadId: String?,
+    onOpen: () -> Unit,
+) {
+    val runningCount = group.threads.count { it.isRunning }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen),
+        shape = SectionShape,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
+        ),
+        border = BorderStroke(
+            1.dp,
+            if (group.isCurrentProject) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+            } else {
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.10f)
+            },
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ThreadAvatar(
+                    label = threadAvatarLabel(group.displayName),
+                    seed = group.key,
+                    highlighted = runningCount > 0,
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = group.displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                group.updatedAtEpochSeconds?.let { updatedAt ->
+                    Text(
+                        text = sessionCompactTimeLabel(updatedAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (group.isCurrentProject) {
+                    ThreadStateBadge(
+                        text = stringResource(R.string.project_card_current),
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    )
+                }
+                ThreadStateBadge(
+                    text = stringResource(
+                        R.string.project_card_thread_count,
+                        group.threads.size,
+                    ),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                )
+                if (runningCount > 0) {
+                    ThreadStateBadge(
+                        text = stringResource(R.string.project_card_running_count, runningCount),
+                        containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
+                    )
+                }
+            }
+
+            if (group.threads.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.project_detail_empty_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    group.threads.take(3).forEach { summary ->
+                        ProjectThreadPreviewRow(
+                            summary = summary,
+                            isActive = summary.id == activeThreadId,
+                            isRecentlyCompleted = summary.id == lastCompletedThreadId,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjectThreadPreviewRow(
+    summary: RemoteSessionSummary,
+    isActive: Boolean,
+    isRecentlyCompleted: Boolean,
+) {
+    val title = threadConversationTitle(
+        fallbackTitle = summary.title,
+        unnamedTitle = stringResource(R.string.thread_title_unnamed),
+        threadId = summary.id,
+    )
+    val statusLabel = when {
+        summary.isRunning -> stringResource(R.string.thread_running)
+        isRecentlyCompleted -> stringResource(R.string.thread_recently_completed)
+        else -> stringResource(R.string.label_thread_short, summary.id.take(6))
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                color = containerColor,
-                shape = PillShape,
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                shape = RoundedCornerShape(18.dp),
             )
-            .padding(horizontal = 14.dp, vertical = 9.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box(
             modifier = Modifier
                 .size(8.dp)
-                .background(dotColor, CircleShape)
+                .background(
+                    color = when {
+                        summary.isRunning -> Color(0xFF4CC85A)
+                        isActive -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.52f)
+                    },
+                    shape = CircleShape,
+                )
         )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = statusLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (isActive) {
+            Text(
+                text = stringResource(R.string.label_current_thread),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        } else {
+            summary.updatedAtEpochSeconds?.let { updatedAt ->
+                Text(
+                    text = sessionCompactTimeLabel(updatedAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjectDetailScreen(
+    group: ProjectThreadGroup,
+    selectedThreadId: String?,
+    lastCompletedThreadId: String?,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    onCreateSession: (String?) -> Unit,
+    onOpenSession: (RemoteSessionSummary) -> Unit,
+) {
+    AppBackdrop {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                ScreenHeader(
+                    title = group.displayName,
+                    subtitle = group.cwd ?: stringResource(R.string.project_card_default_path),
+                    onBack = onBack,
+                    trailingIcon = Icons.Outlined.Refresh,
+                    trailingDescription = stringResource(R.string.action_refresh_threads),
+                    onTrailingClick = onRefresh,
+                )
+            },
+        ) { padding ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(
+                    start = PageHorizontalPadding,
+                    top = 6.dp,
+                    end = PageHorizontalPadding,
+                    bottom = 40.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item {
+                    ProjectSummaryCard(
+                        group = group,
+                        onRefresh = onRefresh,
+                        onCreateSession = { onCreateSession(group.cwd) },
+                    )
+                }
+
+                if (group.threads.isEmpty()) {
+                    item {
+                        ProjectEmptyStateCard(
+                            onCreateSession = { onCreateSession(group.cwd) },
+                        )
+                    }
+                } else {
+                    item {
+                        ThreadSectionCard(
+                            title = stringResource(R.string.project_items_title),
+                            description = stringResource(R.string.project_items_description),
+                        )
+                    }
+                    items(group.threads, key = { it.id }) { summary ->
+                        ThreadMiniCard(
+                            summary = summary,
+                            isSelected = summary.id == selectedThreadId,
+                            isRunning = summary.isRunning,
+                            isRecentlyCompleted = summary.id == lastCompletedThreadId,
+                            onOpen = { onOpenSession(summary) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjectSummaryCard(
+    group: ProjectThreadGroup,
+    onRefresh: () -> Unit,
+    onCreateSession: () -> Unit,
+) {
+    val runningCount = group.threads.count { it.isRunning }
+
+    Card(
+        shape = SectionShape,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (group.isCurrentProject) {
+                    ThreadStateBadge(
+                        text = stringResource(R.string.project_card_current),
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    )
+                }
+                ThreadStateBadge(
+                    text = stringResource(R.string.project_card_thread_count, group.threads.size),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                )
+                if (runningCount > 0) {
+                    ThreadStateBadge(
+                        text = stringResource(R.string.project_card_running_count, runningCount),
+                        containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
+                    )
+                }
+            }
+
+            Text(
+                text = group.cwd ?: stringResource(R.string.project_card_default_path),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontFamily = FontFamily.Monospace,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                SmallToolbarButton(
+                    label = stringResource(R.string.action_refresh_threads),
+                    onClick = onRefresh,
+                    modifier = Modifier.weight(1f),
+                    outlined = true,
+                )
+                SmallToolbarButton(
+                    label = stringResource(R.string.action_create_session),
+                    onClick = onCreateSession,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjectEmptyStateCard(
+    onCreateSession: () -> Unit,
+) {
+    Card(
+        shape = SectionShape,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.project_detail_empty_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = stringResource(R.string.project_detail_empty_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            SmallToolbarButton(
+                label = stringResource(R.string.action_create_session),
+                onClick = onCreateSession,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TopBarModeBadge(uiState: AcpUiState) {
+    val isReady = uiState.isConnected && uiState.isInitialized
+    val statusDescription = topBarConnectionLabel(uiState)
+    val modeLabel = stringResource(
+        if (uiState.serverMode == ServerMode.CodexAppServer) {
+            R.string.status_mode_codex
+        } else {
+            R.string.status_mode_acp
+        }
+    )
+    val containerColor = when {
+        isReady -> MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+        uiState.isConnected -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f)
+        else -> MaterialTheme.colorScheme.surface
+    }
+    val accentColor = when {
+        isReady -> MaterialTheme.colorScheme.primary
+        uiState.isConnected -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.outline
+    }
+
+    Row(
+        modifier = Modifier
+            .background(
+                color = containerColor,
+                shape = PillShape,
+            )
+            .semantics {
+                contentDescription = statusDescription
+            }
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (isReady) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(accentColor, CircleShape)
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Outlined.Sync,
+                contentDescription = null,
+                tint = accentColor,
+                modifier = Modifier.size(14.dp),
+            )
+        }
         Text(
-            text = topBarConnectionLabel(uiState),
+            text = modeLabel,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = if (isReady) accentColor else MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -3075,11 +3763,11 @@ private fun ThreadEmptyCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = stringResource(R.string.thread_empty_title),
+                text = stringResource(R.string.project_empty_title),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = stringResource(R.string.thread_empty_description),
+                text = stringResource(R.string.project_empty_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -3144,20 +3832,19 @@ private fun ThreadMiniCard(
     isRecentlyCompleted: Boolean,
     onOpen: () -> Unit,
 ) {
-    val displayTitle = threadDisplayTitle(
-        cwd = summary.cwd,
+    val displayTitle = threadConversationTitle(
         fallbackTitle = summary.title,
         unnamedTitle = stringResource(R.string.thread_title_unnamed),
+        threadId = summary.id,
     )
-    val previewLabel = threadPreviewLabel(
-        rawTitle = summary.title,
-        cwd = summary.cwd,
-    )
-    val subtitle = previewLabel ?: when {
-        isRunning -> stringResource(R.string.thread_running)
-        isRecentlyCompleted -> stringResource(R.string.thread_recently_completed)
-        else -> null
+    val subtitleParts = buildList {
+        when {
+            isRunning -> add(stringResource(R.string.thread_running))
+            isRecentlyCompleted -> add(stringResource(R.string.thread_recently_completed))
+        }
+        add(stringResource(R.string.label_thread_short, summary.id.take(6)))
     }
+    val subtitle = subtitleParts.joinToString(" · ")
 
     Card(
         modifier = Modifier
@@ -3200,15 +3887,13 @@ private fun ThreadMiniCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                subtitle?.let { label ->
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             Column(
                 horizontalAlignment = Alignment.End,
@@ -3446,16 +4131,30 @@ private fun CodexThreadDetailScreen(
     onApprove: (kotlinx.serialization.json.JsonElement) -> Unit,
     onDecline: (kotlinx.serialization.json.JsonElement) -> Unit,
 ) {
-    val threadDetailFallbackTitle = stringResource(R.string.thread_detail_title)
     val isLoaded = uiState.sessionId == threadId
     val transcriptEntries = if (isLoaded) uiState.transcriptEntries else emptyList()
     val currentSummary = uiState.sessionSummaries.firstOrNull { it.id == threadId }
     val threadPath = currentSummary?.cwd ?: uiState.workingDirectory.takeIf { isLoaded && it.isNotBlank() }
-    val displayTitle = threadDisplayTitle(
-        cwd = threadPath,
-        fallbackTitle = threadTitle.ifBlank { threadDetailFallbackTitle },
+    val displayTitle = threadConversationTitle(
+        fallbackTitle = currentSummary?.title ?: threadTitle,
         unnamedTitle = stringResource(R.string.thread_title_unnamed),
+        threadId = threadId,
     )
+    val statusSubtitle = when {
+        !isLoaded -> stringResource(R.string.thread_detail_loading_subtitle)
+        uiState.isStreaming -> stringResource(R.string.thread_running)
+        else -> stringResource(R.string.thread_detail_loaded_subtitle)
+    }
+    val projectLabel = projectNameFromPath(threadPath)
+        ?: threadPath
+        ?: stringResource(R.string.project_card_default_path)
+    val headerSubtitle = buildString {
+        if (projectLabel.isNotBlank() && projectLabel != displayTitle) {
+            append(projectLabel)
+            append(" · ")
+        }
+        append(statusSubtitle)
+    }
     var visibleEntryCount by rememberSaveable(threadId) {
         mutableStateOf(TRANSCRIPT_PAGE_SIZE)
     }
@@ -3540,11 +4239,7 @@ private fun CodexThreadDetailScreen(
             topBar = {
                 TelegramThreadHeader(
                     title = displayTitle,
-                    subtitle = when {
-                        !isLoaded -> stringResource(R.string.thread_detail_loading_subtitle)
-                        uiState.isStreaming -> stringResource(R.string.thread_running)
-                        else -> stringResource(R.string.thread_detail_loaded_subtitle)
-                    },
+                    subtitle = headerSubtitle,
                     avatarSeed = currentSummary?.id ?: threadId,
                     onBack = onBack,
                     onRefresh = onRefresh,

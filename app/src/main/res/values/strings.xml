@@ -74,7 +74,7 @@
     <string name="label_prompt_source_pair_qr">配对二维码</string>
     <string name="label_prompt_source_deep_link">Deep link</string>
 
-    <string name="tab_threads">线程</string>
+    <string name="tab_threads">项目</string>
     <string name="tab_logs">日志</string>
     <string name="nav_mascot_running">跑动中</string>
     <string name="nav_mascot_resting">休息中</string>
@@ -121,21 +121,35 @@
     <string name="thread_transcript_history_title">会话历史</string>
     <string name="thread_transcript_history_empty">当前还没有线程</string>
     <string name="thread_transcript_history_description">这里会显示用户输入、助手输出、命令执行、文件变更以及流式回传。</string>
+    <string name="project_home_title">按项目整理</string>
+    <string name="project_home_description">同一个项目下的多个条目会归在一起。先进入项目，再选择具体条目继续聊天，或者直接在项目下新建 Session。</string>
+    <string name="project_home_summary">项目 %1$d 个，条目 %2$d 个</string>
+    <string name="project_home_current_directory">当前默认项目：%1$s</string>
+    <string name="project_empty_title">还没有项目</string>
+    <string name="project_empty_description">先刷新已有条目，或者选择一个项目新建 Session。</string>
+    <string name="project_card_default_path">使用服务端默认目录</string>
+    <string name="project_card_current">当前项目</string>
+    <string name="project_card_thread_count">%1$d 个条目</string>
+    <string name="project_card_running_count">%1$d 个执行中</string>
+    <string name="project_items_title">项目条目</string>
+    <string name="project_items_description">点进某个条目后，会继续沿用它当前的上下文聊天。</string>
+    <string name="project_detail_empty_title">这个项目下还没有 Session</string>
+    <string name="project_detail_empty_description">先在这个项目下新建一个 Session，再开始聊天。</string>
 
     <string name="logs_title">事件日志</string>
     <string name="logs_description">这里只放调试日志，首页不再展示，避免干扰日常使用。</string>
     <string name="logs_empty_title">还没有日志</string>
     <string name="logs_empty_description">连接、打开线程、发送消息之后，调试日志会出现在这里。</string>
 
-    <string name="new_thread_title">新建线程</string>
-    <string name="new_thread_subtitle">先选项目目录，再创建线程</string>
+    <string name="new_thread_title">选择项目</string>
+    <string name="new_thread_subtitle">在该项目下创建一个 Session</string>
     <string name="new_thread_choose_directory_title">选择项目目录</string>
-    <string name="new_thread_choose_directory_description">你可以直接选最近做过的项目，也可以手动输入一个新的代码路径。创建后，线程会在这个目录下执行。</string>
+    <string name="new_thread_choose_directory_description">你可以直接选最近做过的项目，也可以手动输入一个新的代码路径。创建后，会在这个项目下新建一个 Session。</string>
     <string name="new_thread_recent_projects">最近项目</string>
     <string name="new_thread_manual_path_title">手动输入路径</string>
     <string name="field_project_directory">项目目录</string>
     <string name="field_project_directory_hint">例如 /Users/you/code/project-a。新路径也可以填，但需要电脑端可访问。</string>
-    <string name="new_thread_upcoming_directory_title">即将使用的目录</string>
+    <string name="new_thread_upcoming_directory_title">即将创建 Session 的目录</string>
 
     <string name="settings_title">设置</string>
     <string name="settings_page_subtitle">参照 Telegram 的分组列表样式，常用选项默认收起。</string>
