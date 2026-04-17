@@ -35,7 +35,7 @@ bash scripts/openconnect_pair_up.sh up \
   --cwd "/path/to/your/project"
 ```
 
-If you want to keep local private defaults outside the repository, copy [.openconnect.local.env.example](/Users/bingsun/code/git-repo/app-cli-fluter/openconnet/.openconnect.local.env.example) to `.openconnect.local.env` and fill in your own hostname or endpoint there.
+If you want to keep local private defaults outside the repository, copy [`.openconnect.local.env.example`](.openconnect.local.env.example) to `.openconnect.local.env` and fill in your own hostname or endpoint there.
 
 If you use your own fixed domain, check the named tunnel setup first:
 

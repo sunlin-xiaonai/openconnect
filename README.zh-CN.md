@@ -35,7 +35,7 @@ bash scripts/openconnect_pair_up.sh up \
   --cwd "/path/to/your/project"
 ```
 
-如果你想把这些本地私有默认值放在仓库外配置，可以把 [.openconnect.local.env.example](/Users/bingsun/code/git-repo/app-cli-fluter/openconnet/.openconnect.local.env.example) 复制成 `.openconnect.local.env`，然后写入你自己的域名或 endpoint。
+如果你想把这些本地私有默认值放在仓库外配置，可以把 [`.openconnect.local.env.example`](.openconnect.local.env.example) 复制成 `.openconnect.local.env`，然后写入你自己的域名或 endpoint。
 
 如果你要用自己的固定域名，先检查命名 Tunnel：
 
