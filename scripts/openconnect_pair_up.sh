@@ -36,6 +36,8 @@ READY_TIMEOUT_SECONDS="90"
 LAST_ENDPOINT_STATUS=""
 LAST_ENDPOINT_PROBE_MODE="system"
 TUNNEL_PROTOCOL="auto"
+ACTIVE_TUNNEL_PROTOCOL=""
+LAST_TUNNEL_START_FAILURE=""
 MODE_SOURCE="fallback"
 DOCTOR_HAS_BLOCKER=0
 NAMED_TUNNEL_TEMPLATE_FILE="${PROJECT_ROOT}/docs/examples/cloudflared-config.example.yml"
@@ -45,6 +47,7 @@ CODEX_LOG_FILE="${RUNTIME_DIR}/codex-app-server.log"
 CLOUDFLARED_PID_FILE="${RUNTIME_DIR}/cloudflared.pid"
 CLOUDFLARED_LOG_FILE="${RUNTIME_DIR}/cloudflared.log"
 CLOUDFLARED_URL_FILE="${RUNTIME_DIR}/cloudflared-public-url.txt"
+CLOUDFLARED_PROTOCOL_FILE="${RUNTIME_DIR}/cloudflared-protocol.txt"
 
 usage() {
   cat <<'EOF'
@@ -251,10 +254,11 @@ mode_source_label() {
   esac
 }
 
-cloudflared_protocol_label() {
-  case "${TUNNEL_PROTOCOL}" in
+cloudflared_protocol_label_for() {
+  local protocol="${1:-${TUNNEL_PROTOCOL}}"
+  case "${protocol}" in
     auto)
-      printf 'auto（cloudflared 默认）'
+      printf 'auto（先 quic，失败后 http2）'
       ;;
     quic)
       printf 'quic'
@@ -263,23 +267,81 @@ cloudflared_protocol_label() {
       printf 'http2'
       ;;
     *)
-      printf '%s' "${TUNNEL_PROTOCOL}"
+      printf '%s' "${protocol}"
       ;;
   esac
 }
 
-cloudflared_protocol_args() {
-  case "${TUNNEL_PROTOCOL}" in
+cloudflared_protocol_label() {
+  cloudflared_protocol_label_for "${TUNNEL_PROTOCOL}"
+}
+
+active_cloudflared_protocol_label() {
+  local protocol="${ACTIVE_TUNNEL_PROTOCOL:-}"
+  if [[ -z "${protocol}" ]]; then
+    printf 'unknown'
+    return 0
+  fi
+  cloudflared_protocol_label_for "${protocol}"
+}
+
+cloudflared_protocol_args_for() {
+  local protocol="${1:-${TUNNEL_PROTOCOL}}"
+  case "${protocol}" in
     auto)
       return 0
       ;;
     quic|http2)
-      printf -- '--protocol %s' "${TUNNEL_PROTOCOL}"
+      printf -- '--protocol %s' "${protocol}"
       ;;
     *)
-      fail "不支持的 --protocol 值：${TUNNEL_PROTOCOL}"
+      fail "不支持的 --protocol 值：${protocol}"
       ;;
   esac
+}
+
+load_active_tunnel_protocol() {
+  ACTIVE_TUNNEL_PROTOCOL=""
+  [[ -f "${CLOUDFLARED_PROTOCOL_FILE}" ]] || return 0
+  ACTIVE_TUNNEL_PROTOCOL="$(tr -d '[:space:]' <"${CLOUDFLARED_PROTOCOL_FILE}")"
+}
+
+write_active_tunnel_protocol() {
+  local protocol="$1"
+  ACTIVE_TUNNEL_PROTOCOL="${protocol}"
+  printf '%s\n' "${protocol}" >"${CLOUDFLARED_PROTOCOL_FILE}"
+}
+
+clear_active_tunnel_protocol() {
+  ACTIVE_TUNNEL_PROTOCOL=""
+  rm -f "${CLOUDFLARED_PROTOCOL_FILE}"
+}
+
+configured_tunnel_protocol_sequence() {
+  case "${TUNNEL_PROTOCOL}" in
+    auto)
+      printf 'quic http2'
+      ;;
+    quic|http2)
+      printf '%s' "${TUNNEL_PROTOCOL}"
+      ;;
+    *)
+      fail "--protocol 只支持 auto、quic、http2"
+      ;;
+  esac
+}
+
+protocol_ready_timeout_seconds() {
+  local protocol="$1"
+  if [[ "${TUNNEL_PROTOCOL}" == "auto" && "${protocol}" == "quic" ]]; then
+    if (( READY_TIMEOUT_SECONDS < 20 )); then
+      printf '%s' "${READY_TIMEOUT_SECONDS}"
+    else
+      printf '20'
+    fi
+    return 0
+  fi
+  printf '%s' "${READY_TIMEOUT_SECONDS}"
 }
 
 load_local_defaults_file() {
@@ -801,13 +863,14 @@ start_quick_tunnel() {
   require_cmd tmux
 
   local session_name
-  local start_command
   session_name="$(cloudflared_tmux_session_name)"
+  load_active_tunnel_protocol
 
   if [[ "${RESTART}" == "1" ]]; then
     stop_tmux_session "${session_name}" "cloudflared"
     rm -f "${CLOUDFLARED_PID_FILE}"
     rm -f "${CLOUDFLARED_URL_FILE}"
+    clear_active_tunnel_protocol
   fi
 
   local pid
@@ -833,12 +896,39 @@ start_quick_tunnel() {
     stop_tmux_session "${session_name}" "cloudflared"
     rm -f "${CLOUDFLARED_PID_FILE}"
     rm -f "${CLOUDFLARED_URL_FILE}"
+    clear_active_tunnel_protocol
   fi
 
-  : >"${CLOUDFLARED_LOG_FILE}"
-  log "启动 Cloudflare Quick Tunnel -> http://${LISTEN_HOST}:${LISTEN_PORT}"
+  local protocol_to_try
+  for protocol_to_try in $(configured_tunnel_protocol_sequence); do
+    [[ -n "${protocol_to_try}" ]] || continue
+    if start_quick_tunnel_once "${protocol_to_try}"; then
+      return 0
+    fi
+    if [[ "${TUNNEL_PROTOCOL}" == "auto" && "${protocol_to_try}" == "quic" ]]; then
+      log "Quick Tunnel 使用 quic 启动失败，自动回退到 http2"
+    fi
+  done
+
+  fail "${LAST_TUNNEL_START_FAILURE:-Quick Tunnel 启动失败，日志见 ${CLOUDFLARED_LOG_FILE}}"
+}
+
+start_quick_tunnel_once() {
+  local protocol="$1"
+  local session_name
+  local start_command
+  local pid
+  local public_url=""
   local protocol_args
-  protocol_args="$(cloudflared_protocol_args)"
+  local ready_timeout
+  session_name="$(cloudflared_tmux_session_name)"
+
+  : >"${CLOUDFLARED_LOG_FILE}"
+  rm -f "${CLOUDFLARED_URL_FILE}"
+  LAST_TUNNEL_START_FAILURE=""
+  ready_timeout="$(protocol_ready_timeout_seconds "${protocol}")"
+  log "启动 Cloudflare Quick Tunnel -> http://${LISTEN_HOST}:${LISTEN_PORT}（protocol=${protocol}）"
+  protocol_args="$(cloudflared_protocol_args_for "${protocol}")"
   printf -v start_command 'cd %q && exec cloudflared tunnel %s --no-autoupdate --url %q --logfile %q >/dev/null 2>&1' \
     "${PROJECT_ROOT}" \
     "${protocol_args}" \
@@ -855,22 +945,35 @@ start_quick_tunnel() {
       printf '%s\n' "${public_url}" >"${CLOUDFLARED_URL_FILE}"
       local ws_endpoint
       ws_endpoint="$(public_ws_from_https "${public_url}")"
-      if wait_for_endpoint_ready "${ws_endpoint}" "${READY_TIMEOUT_SECONDS}" "${pid}"; then
+      if wait_for_endpoint_ready "${ws_endpoint}" "${ready_timeout}" "${pid}"; then
+        write_active_tunnel_protocol "${protocol}"
         printf '%s' "${ws_endpoint}"
         return 0
       fi
       if ! is_pid_running "${pid}"; then
-        fail "cloudflared 已退出，日志见 ${CLOUDFLARED_LOG_FILE}"
+        LAST_TUNNEL_START_FAILURE="cloudflared 已退出，日志见 ${CLOUDFLARED_LOG_FILE}"
+        clear_active_tunnel_protocol
+        return 1
       fi
-      fail "Quick Tunnel 在 ${READY_TIMEOUT_SECONDS} 秒内仍未就绪（最后状态=${LAST_ENDPOINT_STATUS:-unknown}）：${public_url}"
+      LAST_TUNNEL_START_FAILURE="Quick Tunnel 使用 ${protocol} 在 ${ready_timeout} 秒内仍未就绪（最后状态=${LAST_ENDPOINT_STATUS:-unknown}）：${public_url}"
+      stop_tmux_session "${session_name}" "cloudflared"
+      rm -f "${CLOUDFLARED_PID_FILE}" "${CLOUDFLARED_URL_FILE}"
+      clear_active_tunnel_protocol
+      return 1
     fi
     if ! is_pid_running "${pid}"; then
-      fail "cloudflared 已退出，日志见 ${CLOUDFLARED_LOG_FILE}"
+      LAST_TUNNEL_START_FAILURE="cloudflared 已退出，日志见 ${CLOUDFLARED_LOG_FILE}"
+      clear_active_tunnel_protocol
+      return 1
     fi
     sleep 1
   done
 
-  fail "30 秒内没有拿到 Quick Tunnel 公网地址，日志见 ${CLOUDFLARED_LOG_FILE}"
+  stop_tmux_session "${session_name}" "cloudflared"
+  rm -f "${CLOUDFLARED_PID_FILE}" "${CLOUDFLARED_URL_FILE}"
+  LAST_TUNNEL_START_FAILURE="Quick Tunnel 使用 ${protocol} 在 30 秒内没有拿到公网地址，日志见 ${CLOUDFLARED_LOG_FILE}"
+  clear_active_tunnel_protocol
+  return 1
 }
 
 start_named_tunnel() {
@@ -879,12 +982,13 @@ start_named_tunnel() {
   validate_named_tunnel_config_or_fail
 
   local session_name
-  local start_command
   session_name="$(cloudflared_tmux_session_name)"
+  load_active_tunnel_protocol
 
   if [[ "${RESTART}" == "1" ]]; then
     stop_tmux_session "${session_name}" "cloudflared"
     rm -f "${CLOUDFLARED_PID_FILE}"
+    clear_active_tunnel_protocol
   fi
 
   local pid
@@ -898,12 +1002,38 @@ start_named_tunnel() {
     log "现有命名 Tunnel 不可用，准备重启"
     stop_tmux_session "${session_name}" "cloudflared"
     rm -f "${CLOUDFLARED_PID_FILE}"
+    clear_active_tunnel_protocol
   fi
 
-  : >"${CLOUDFLARED_LOG_FILE}"
-  log "启动命名 Tunnel ${TUNNEL_NAME}（hostname=${HOSTNAME}）"
+  local protocol_to_try
+  for protocol_to_try in $(configured_tunnel_protocol_sequence); do
+    [[ -n "${protocol_to_try}" ]] || continue
+    if start_named_tunnel_once "${protocol_to_try}"; then
+      return 0
+    fi
+    if [[ "${TUNNEL_PROTOCOL}" == "auto" && "${protocol_to_try}" == "quic" ]]; then
+      log "命名 Tunnel 使用 quic 启动失败，自动回退到 http2"
+    fi
+  done
+
+  fail "${LAST_TUNNEL_START_FAILURE:-命名 Tunnel 启动失败，日志见 ${CLOUDFLARED_LOG_FILE}}"
+}
+
+start_named_tunnel_once() {
+  local protocol="$1"
+  local session_name
+  local start_command
+  local pid
+  local endpoint="wss://${HOSTNAME}"
   local protocol_args
-  protocol_args="$(cloudflared_protocol_args)"
+  local ready_timeout
+  session_name="$(cloudflared_tmux_session_name)"
+
+  : >"${CLOUDFLARED_LOG_FILE}"
+  LAST_TUNNEL_START_FAILURE=""
+  ready_timeout="$(protocol_ready_timeout_seconds "${protocol}")"
+  log "启动命名 Tunnel ${TUNNEL_NAME}（hostname=${HOSTNAME}, protocol=${protocol}）"
+  protocol_args="$(cloudflared_protocol_args_for "${protocol}")"
   printf -v start_command 'cd %q && exec cloudflared tunnel %s --config %q --no-autoupdate --logfile %q run %q >/dev/null 2>&1' \
     "${PROJECT_ROOT}" \
     "${protocol_args}" \
@@ -914,16 +1044,22 @@ start_named_tunnel() {
   pid="$(tmux_session_pid "${session_name}" || true)"
   [[ -n "${pid}" ]] && printf '%s\n' "${pid}" >"${CLOUDFLARED_PID_FILE}"
 
-  local endpoint="wss://${HOSTNAME}"
-  if wait_for_endpoint_ready "${endpoint}" "${READY_TIMEOUT_SECONDS}" "${pid}"; then
+  if wait_for_endpoint_ready "${endpoint}" "${ready_timeout}" "${pid}"; then
+    write_active_tunnel_protocol "${protocol}"
     printf '%s' "${endpoint}"
     return 0
   fi
   if ! is_pid_running "${pid}"; then
-    fail "cloudflared 已退出，日志见 ${CLOUDFLARED_LOG_FILE}"
+    LAST_TUNNEL_START_FAILURE="cloudflared 已退出，日志见 ${CLOUDFLARED_LOG_FILE}"
+    clear_active_tunnel_protocol
+    return 1
   fi
 
-  fail "命名 Tunnel 启动后 ${READY_TIMEOUT_SECONDS} 秒内仍不可用（最后状态=${LAST_ENDPOINT_STATUS:-unknown}）：${endpoint}"
+  stop_tmux_session "${session_name}" "cloudflared"
+  rm -f "${CLOUDFLARED_PID_FILE}"
+  LAST_TUNNEL_START_FAILURE="命名 Tunnel 使用 ${protocol} 启动后 ${ready_timeout} 秒内仍不可用（最后状态=${LAST_ENDPOINT_STATUS:-unknown}）：${endpoint}"
+  clear_active_tunnel_protocol
+  return 1
 }
 
 ensure_endpoint_reachable_safe() {
@@ -1005,16 +1141,24 @@ copy_to_clipboard_if_available() {
 stop_all() {
   stop_tmux_session "$(cloudflared_tmux_session_name)" "cloudflared"
   rm -f "${CLOUDFLARED_PID_FILE}"
+  clear_active_tunnel_protocol
   stop_tmux_session "$(codex_tmux_session_name)" "codex app-server"
   rm -f "${CODEX_PID_FILE}"
   rm -f "${CLOUDFLARED_URL_FILE}"
 }
 
 status() {
+  load_active_tunnel_protocol
   log "项目目录：${PROJECT_ROOT}"
   log "当前模式：$(doctor_mode_label)（来源：$(mode_source_label)）"
   log "默认工作目录：${CWD_PATH}"
   log "本地 Codex 监听：ws://${LISTEN_HOST}:${LISTEN_PORT}"
+  if [[ "${MODE}" == "quick" || "${MODE}" == "named" ]]; then
+    log "Tunnel 配置协议：$(cloudflared_protocol_label)"
+    if [[ -n "${ACTIVE_TUNNEL_PROTOCOL}" ]]; then
+      log "Tunnel 实际协议：$(active_cloudflared_protocol_label)"
+    fi
+  fi
 
   local listener
   listener="$(port_listener_line)"
@@ -1078,7 +1222,11 @@ run_up() {
   log "公网 WebSocket：${ws_endpoint}"
   log "当前模式：$(doctor_mode_label)（来源：$(mode_source_label)）"
   if [[ "${MODE}" == "quick" || "${MODE}" == "named" ]]; then
-    log "Tunnel 协议：$(cloudflared_protocol_label)"
+    load_active_tunnel_protocol
+    log "Tunnel 配置协议：$(cloudflared_protocol_label)"
+    if [[ -n "${ACTIVE_TUNNEL_PROTOCOL}" ]]; then
+      log "Tunnel 实际协议：$(active_cloudflared_protocol_label)"
+    fi
   fi
   log "配对链接：${pair_url}"
   if [[ "${LAST_ENDPOINT_PROBE_MODE}" == public-dns:* ]]; then

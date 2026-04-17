@@ -44,7 +44,8 @@ bash scripts/openconnect_pair_up.sh up \
   --cwd "/path/to/your/project"
 ```
 
-如果当前网络把 Cloudflare 默认的 QUIC 通道拦了，可以改用 HTTP/2：
+默认 tunnel 协议是 `auto`：会先尝试 `quic`，如果当前网络把 QUIC 卡住，再自动重启到 `http2`。
+如果你已经确定要直接走 HTTP/2，也可以显式指定：
 
 ```bash
 bash scripts/openconnect_pair_up.sh up \
@@ -96,11 +97,10 @@ bash scripts/openconnect_pair_up.sh doctor \
 bash scripts/openconnect_pair_up.sh up \
   --named-tunnel openconnect-codex \
   --hostname codex.example.com \
-  --protocol http2 \
   --cwd "/path/to/your/project"
 ```
 
-如果你希望这台机器默认就走 HTTP/2，也可以在 `.openconnect.local.env` 里写 `OPENCONNECT_TUNNEL_PROTOCOL=http2`。
+如果你希望这台机器默认就走自动回退或固定 HTTP/2，也可以在 `.openconnect.local.env` 里写 `OPENCONNECT_TUNNEL_PROTOCOL=auto` 或 `OPENCONNECT_TUNNEL_PROTOCOL=http2`。
 
 如果你已经有自己的公网 `wss://` 地址，也可以直接生成配对链接：
 
