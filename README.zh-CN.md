@@ -35,6 +35,15 @@ bash scripts/openconnect_pair_up.sh up \
   --cwd "/path/to/your/project"
 ```
 
+如果当前网络把 Cloudflare 默认的 QUIC 通道拦了，可以强制切到 HTTP/2：
+
+```bash
+bash scripts/openconnect_pair_up.sh up \
+  --quick-tunnel \
+  --protocol http2 \
+  --cwd "/path/to/your/project"
+```
+
 如果你想把这些本地私有默认值放在仓库外配置，可以把 [`.openconnect.local.env.example`](.openconnect.local.env.example) 复制成 `.openconnect.local.env`，然后写入你自己的域名或 endpoint。
 
 如果你要用自己的固定域名，先检查命名 Tunnel：
@@ -51,8 +60,11 @@ bash scripts/openconnect_pair_up.sh doctor \
 bash scripts/openconnect_pair_up.sh up \
   --named-tunnel openconnect-codex \
   --hostname codex.example.com \
+  --protocol http2 \
   --cwd "/path/to/your/project"
 ```
+
+如果你想长期固定协议，也可以在 `.openconnect.local.env` 里配置 `OPENCONNECT_TUNNEL_PROTOCOL=http2`。
 
 如果你已经有公网 `wss://` 地址，也可以直接生成配对链接：
 

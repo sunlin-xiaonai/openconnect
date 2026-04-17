@@ -14,6 +14,7 @@ CWD_EXPLICIT=0
 LISTEN_HOST_EXPLICIT=0
 LISTEN_PORT_EXPLICIT=0
 CLOUDFLARED_CONFIG_EXPLICIT=0
+TUNNEL_PROTOCOL_EXPLICIT=0
 CWD_PATH="${PROJECT_ROOT}"
 LISTEN_HOST="127.0.0.1"
 LISTEN_PORT="9000"
@@ -34,6 +35,7 @@ PRINT_QR=1
 READY_TIMEOUT_SECONDS="90"
 LAST_ENDPOINT_STATUS=""
 LAST_ENDPOINT_PROBE_MODE="system"
+TUNNEL_PROTOCOL="auto"
 MODE_SOURCE="fallback"
 DOCTOR_HAS_BLOCKER=0
 NAMED_TUNNEL_TEMPLATE_FILE="${PROJECT_ROOT}/docs/examples/cloudflared-config.example.yml"
@@ -69,6 +71,7 @@ usage() {
   --listen-host HOST        本地 codex app-server 监听地址，默认 127.0.0.1
   --hostname HOST           命名 Tunnel 对外域名，例如 codex.example.com
   --cloudflared-config PATH 命名 Tunnel 的 cloudflared 配置文件
+  --protocol auto|quic|http2
   --permission safe|full    生成二维码时写入 permissionPreset，默认 safe
   --bearer-token TOKEN
   --cf-access-client-id ID
@@ -84,7 +87,8 @@ usage() {
   scripts/openconnect_pair_up.sh doctor
   scripts/openconnect_pair_up.sh doctor --named-tunnel openconnect-codex --hostname codex.example.com
   scripts/openconnect_pair_up.sh up --quick-tunnel --cwd "$PWD"
-  scripts/openconnect_pair_up.sh up --named-tunnel openconnect-codex --hostname codex.example.com --cwd "$PWD"
+  scripts/openconnect_pair_up.sh up --quick-tunnel --protocol http2 --cwd "$PWD"
+  scripts/openconnect_pair_up.sh up --named-tunnel openconnect-codex --hostname codex.example.com --protocol http2 --cwd "$PWD"
   scripts/openconnect_pair_up.sh up --endpoint wss://codex.example.com --cwd "$PWD"
   scripts/openconnect_pair_up.sh status
   scripts/openconnect_pair_up.sh stop
@@ -247,6 +251,37 @@ mode_source_label() {
   esac
 }
 
+cloudflared_protocol_label() {
+  case "${TUNNEL_PROTOCOL}" in
+    auto)
+      printf 'auto（cloudflared 默认）'
+      ;;
+    quic)
+      printf 'quic'
+      ;;
+    http2)
+      printf 'http2'
+      ;;
+    *)
+      printf '%s' "${TUNNEL_PROTOCOL}"
+      ;;
+  esac
+}
+
+cloudflared_protocol_args() {
+  case "${TUNNEL_PROTOCOL}" in
+    auto)
+      return 0
+      ;;
+    quic|http2)
+      printf -- '--protocol %s' "${TUNNEL_PROTOCOL}"
+      ;;
+    *)
+      fail "不支持的 --protocol 值：${TUNNEL_PROTOCOL}"
+      ;;
+  esac
+}
+
 load_local_defaults_file() {
   [[ -f "${LOCAL_DEFAULTS_FILE}" ]] || return 0
   # shellcheck disable=SC1090
@@ -320,6 +355,9 @@ resolve_mode_defaults() {
   fi
   if [[ "${CLOUDFLARED_CONFIG_EXPLICIT}" != "1" && -n "${OPENCONNECT_CLOUDFLARED_CONFIG:-}" ]]; then
     CLOUDFLARED_CONFIG="${OPENCONNECT_CLOUDFLARED_CONFIG}"
+  fi
+  if [[ "${TUNNEL_PROTOCOL_EXPLICIT}" != "1" && -n "${OPENCONNECT_TUNNEL_PROTOCOL:-}" ]]; then
+    TUNNEL_PROTOCOL="${OPENCONNECT_TUNNEL_PROTOCOL}"
   fi
   apply_env_default_if_empty "ENDPOINT" "OPENCONNECT_ENDPOINT"
   apply_env_default_if_empty "HOSTNAME" "OPENCONNECT_HOSTNAME"
@@ -420,6 +458,9 @@ run_doctor() {
   doctor_print "模式来源：$(mode_source_label)"
   doctor_print "工作目录：${CWD_PATH}"
   doctor_print "本地监听：ws://${LISTEN_HOST}:${LISTEN_PORT}"
+  if [[ "${MODE}" == "quick" || "${MODE}" == "named" ]]; then
+    doctor_print "Tunnel 协议：$(cloudflared_protocol_label)"
+  fi
   doctor_print ""
   doctor_print "依赖检查："
   doctor_check_cmd "codex" "Codex CLI"
@@ -796,8 +837,11 @@ start_quick_tunnel() {
 
   : >"${CLOUDFLARED_LOG_FILE}"
   log "启动 Cloudflare Quick Tunnel -> http://${LISTEN_HOST}:${LISTEN_PORT}"
-  printf -v start_command 'cd %q && exec cloudflared tunnel --no-autoupdate --url %q --logfile %q >/dev/null 2>&1' \
+  local protocol_args
+  protocol_args="$(cloudflared_protocol_args)"
+  printf -v start_command 'cd %q && exec cloudflared tunnel %s --no-autoupdate --url %q --logfile %q >/dev/null 2>&1' \
     "${PROJECT_ROOT}" \
+    "${protocol_args}" \
     "http://${LISTEN_HOST}:${LISTEN_PORT}" \
     "${CLOUDFLARED_LOG_FILE}"
   tmux new-session -d -s "${session_name}" "${start_command}"
@@ -858,8 +902,11 @@ start_named_tunnel() {
 
   : >"${CLOUDFLARED_LOG_FILE}"
   log "启动命名 Tunnel ${TUNNEL_NAME}（hostname=${HOSTNAME}）"
-  printf -v start_command 'cd %q && exec cloudflared tunnel --config %q --no-autoupdate --logfile %q run %q >/dev/null 2>&1' \
+  local protocol_args
+  protocol_args="$(cloudflared_protocol_args)"
+  printf -v start_command 'cd %q && exec cloudflared tunnel %s --config %q --no-autoupdate --logfile %q run %q >/dev/null 2>&1' \
     "${PROJECT_ROOT}" \
+    "${protocol_args}" \
     "${CLOUDFLARED_CONFIG}" \
     "${CLOUDFLARED_LOG_FILE}" \
     "${TUNNEL_NAME}"
@@ -1030,6 +1077,9 @@ run_up() {
 
   log "公网 WebSocket：${ws_endpoint}"
   log "当前模式：$(doctor_mode_label)（来源：$(mode_source_label)）"
+  if [[ "${MODE}" == "quick" || "${MODE}" == "named" ]]; then
+    log "Tunnel 协议：$(cloudflared_protocol_label)"
+  fi
   log "配对链接：${pair_url}"
   if [[ "${LAST_ENDPOINT_PROBE_MODE}" == public-dns:* ]]; then
     log "注意：当前机器默认 DNS 无法解析 Tunnel 域名，脚本已改用公共 DNS 探测。若手机与电脑共用同一 Wi-Fi DNS，扫码后仍可能连不上；可改用移动网络，或使用 --named-tunnel / --endpoint 配置稳定域名。"
@@ -1101,6 +1151,11 @@ parse_args() {
         CLOUDFLARED_CONFIG_EXPLICIT=1
         shift 2
         ;;
+      --protocol)
+        TUNNEL_PROTOCOL="${2:-}"
+        TUNNEL_PROTOCOL_EXPLICIT=1
+        shift 2
+        ;;
       --permission)
         PERMISSION_PRESET="${2:-}"
         shift 2
@@ -1152,6 +1207,13 @@ parse_args() {
   done
 
   [[ "${READY_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] || fail "--ready-timeout 必须是正整数"
+  case "${TUNNEL_PROTOCOL}" in
+    auto|quic|http2)
+      ;;
+    *)
+      fail "--protocol 只支持 auto、quic、http2"
+      ;;
+  esac
 }
 
 main() {

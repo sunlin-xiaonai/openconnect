@@ -44,6 +44,15 @@ bash scripts/openconnect_pair_up.sh up \
   --cwd "/path/to/your/project"
 ```
 
+If the current network blocks Cloudflare's default QUIC path, retry with HTTP/2:
+
+```bash
+bash scripts/openconnect_pair_up.sh up \
+  --quick-tunnel \
+  --protocol http2 \
+  --cwd "/path/to/your/project"
+```
+
 The script will:
 
 - verify required commands
@@ -85,8 +94,11 @@ Then start it:
 bash scripts/openconnect_pair_up.sh up \
   --named-tunnel openconnect-codex \
   --hostname codex.example.com \
+  --protocol http2 \
   --cwd "/path/to/your/project"
 ```
+
+If you want this to be the default on your machine, put `OPENCONNECT_TUNNEL_PROTOCOL=http2` in `.openconnect.local.env`.
 
 If you already operate a public WebSocket endpoint, you can skip tunnel startup:
 
